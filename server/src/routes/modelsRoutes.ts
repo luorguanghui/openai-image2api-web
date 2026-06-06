@@ -46,7 +46,10 @@ async function fetchOnlineModelIds(apiKey: string): Promise<string[]> {
 
 function isLikelyImageModel(id: string): boolean {
   const normalized = id.toLowerCase();
-  return normalized.includes("gpt-image") || normalized.includes("image");
+  return normalized.includes("gpt-image") ||
+    normalized.includes("wan2.7-image") ||
+    normalized.includes("gemini") ||
+    normalized.includes("image");
 }
 
 function createOnlineImageModel(id: string) {

@@ -115,6 +115,8 @@ export interface ModelInfo {
   supportsBase64ImageUrls?: boolean;
   supportsMask: boolean;
   requestMode?: "async" | "sync";
+  apiFamily?: "gpt" | "wan" | "gemini";
+  maxPromptLength?: number;
 }
 
 const GPT_IMAGE_2_RATIO_SIZES = [
@@ -143,6 +145,13 @@ const GPT_IMAGE_2_PIXEL_SIZES = [
 
 const GPT_IMAGE_1_OFFICIAL_SIZES = ["1:1", "3:2", "2:3"];
 const LEGACY_OPENAI_GPT_IMAGE_1_SIZES = ["1024x1024", "1024x1536", "1536x1024", "auto"];
+const WAN_IMAGE_SIZES = ["1K", "2K", "1:1", "4:3", "3:4", "16:9", "9:16"];
+const WAN_IMAGE_PRO_SIZES = ["1K", "2K", "4K", "1:1", "4:3", "3:4", "16:9", "9:16"];
+const GEMINI_IMAGE_SIZES = ["1:1", "3:4", "4:3", "9:16", "16:9"];
+const GEMINI_31_IMAGE_SIZES = [
+  ...GEMINI_IMAGE_SIZES,
+  "21:9", "9:21", "2:3", "3:2", "5:4", "4:5",
+];
 
 const ALL_SIZES = [
   ...new Set([
@@ -150,12 +159,20 @@ const ALL_SIZES = [
     ...GPT_IMAGE_2_PIXEL_SIZES,
     ...GPT_IMAGE_1_OFFICIAL_SIZES,
     ...LEGACY_OPENAI_GPT_IMAGE_1_SIZES,
+    ...WAN_IMAGE_PRO_SIZES,
+    ...GEMINI_31_IMAGE_SIZES,
   ]),
 ];
 
 /** 参数校验白名单定义 */
 export const ALLOWED_VALUES = {
-  model: ["gpt-image-2", "gpt-image-2-official", "gpt-image-1.5-official", "gpt-image-1-official", "gpt-image-1"],
+  model: [
+    "gpt-image-2", "gpt-image-2-official", "gpt-image-1.5-official", "gpt-image-1-official", "gpt-image-1",
+    "wan2.7-image-pro", "wan2.7-image",
+    "gemini-3.1-flash-image-preview", "gemini-3.1-flash-image-preview-official",
+    "gemini-3-pro-image-preview", "gemini-3-pro-image-preview-official",
+    "gemini-2.5-flash-image-preview", "gemini-2.5-flash-image-preview-official",
+  ],
   size: [
     "auto",
     "1:1", "3:2", "2:3", "4:3", "3:4", "5:4", "4:5",
@@ -170,13 +187,13 @@ export const ALLOWED_VALUES = {
     "2016x864", "2688x1152", "3840x1648",
     "864x2016", "1152x2688", "1648x3840",
   ],
-  resolution: ["1k", "2k", "4k"],
+  resolution: ["0.5K", "1K", "2K", "4K", "1k", "2k", "4k"],
   quality: ["low", "medium", "high", "auto"],
   output_format: ["png", "jpeg", "webp"],
   background: ["transparent", "auto", "opaque"],
   moderation: ["auto", "low"],
   n: { min: 1, max: 4 },
-  prompt: { maxLength: 4000 },
+  prompt: { maxLength: 5000 },
   image_urls: { maxCount: 16 },
   output_compression: { min: 0, max: 100 },
 } as const;
@@ -217,6 +234,7 @@ export const AVAILABLE_MODELS: ModelInfo[] = [
     supportsBase64ImageUrls: true,
     supportsMask: false,
     requestMode: "async",
+    apiFamily: "gpt",
   },
   {
     id: "gpt-image-2-official",
@@ -231,6 +249,7 @@ export const AVAILABLE_MODELS: ModelInfo[] = [
     supportsImageUrls: true,
     supportsMask: true,
     requestMode: "async",
+    apiFamily: "gpt",
   },
   {
     id: "gpt-image-1.5-official",
@@ -245,6 +264,7 @@ export const AVAILABLE_MODELS: ModelInfo[] = [
     supportsImageUrls: true,
     supportsMask: true,
     requestMode: "async",
+    apiFamily: "gpt",
   },
   {
     id: "gpt-image-1-official",
@@ -259,6 +279,135 @@ export const AVAILABLE_MODELS: ModelInfo[] = [
     supportsImageUrls: true,
     supportsMask: true,
     requestMode: "async",
+    apiFamily: "gpt",
+  },
+  {
+    id: "wan2.7-image-pro",
+    name: "Wan2.7 Image Pro",
+    description: "Wan2.7 Image Pro async model. Text-to-image supports up to 4K; image-to-image/reference workflows support up to 2K.",
+    maxN: 4,
+    maxReferenceImages: 9,
+    supportedSizes: WAN_IMAGE_PRO_SIZES,
+    supportedResolutions: ["1K", "2K", "4K"],
+    supportedQualities: ["auto"],
+    supportedOutputFormats: ["png"],
+    supportsImageUrls: true,
+    supportsMask: false,
+    requestMode: "async",
+    apiFamily: "wan",
+    maxPromptLength: 5000,
+  },
+  {
+    id: "wan2.7-image",
+    name: "Wan2.7 Image",
+    description: "Wan2.7 Image async model. Supports text-to-image, image-to-image and reference images up to 2K.",
+    maxN: 4,
+    maxReferenceImages: 9,
+    supportedSizes: WAN_IMAGE_SIZES,
+    supportedResolutions: ["1K", "2K"],
+    supportedQualities: ["auto"],
+    supportedOutputFormats: ["png"],
+    supportsImageUrls: true,
+    supportsMask: false,
+    requestMode: "async",
+    apiFamily: "wan",
+    maxPromptLength: 5000,
+  },
+  {
+    id: "gemini-3.1-flash-image-preview",
+    name: "Gemini 3.1 Flash Image Preview",
+    description: "Gemini 3.1 Flash Image Preview (Nano Banana 2). Supports 0.5K/1K/2K/4K and up to 14 reference images.",
+    maxN: 4,
+    maxReferenceImages: 14,
+    supportedSizes: GEMINI_31_IMAGE_SIZES,
+    supportedResolutions: ["0.5K", "1K", "2K", "4K"],
+    supportedQualities: ["auto"],
+    supportedOutputFormats: ["png"],
+    supportsImageUrls: true,
+    supportsMask: false,
+    requestMode: "async",
+    apiFamily: "gemini",
+    maxPromptLength: 1000,
+  },
+  {
+    id: "gemini-3.1-flash-image-preview-official",
+    name: "Gemini 3.1 Flash Image Preview (Official)",
+    description: "Official Gemini 3.1 Flash Image Preview channel. Supports 0.5K/1K/2K/4K and up to 14 reference images.",
+    maxN: 4,
+    maxReferenceImages: 14,
+    supportedSizes: GEMINI_31_IMAGE_SIZES,
+    supportedResolutions: ["0.5K", "1K", "2K", "4K"],
+    supportedQualities: ["auto"],
+    supportedOutputFormats: ["png"],
+    supportsImageUrls: true,
+    supportsMask: false,
+    requestMode: "async",
+    apiFamily: "gemini",
+    maxPromptLength: 1000,
+  },
+  {
+    id: "gemini-3-pro-image-preview",
+    name: "Gemini 3 Pro Image Preview",
+    description: "Gemini 3 Pro Image Preview (Nano Banana Pro). Supports 1K/2K/4K, up to 14 reference images and mask editing.",
+    maxN: 4,
+    maxReferenceImages: 14,
+    supportedSizes: GEMINI_IMAGE_SIZES,
+    supportedResolutions: ["1K", "2K", "4K"],
+    supportedQualities: ["auto"],
+    supportedOutputFormats: ["png"],
+    supportsImageUrls: true,
+    supportsMask: true,
+    requestMode: "async",
+    apiFamily: "gemini",
+    maxPromptLength: 1000,
+  },
+  {
+    id: "gemini-3-pro-image-preview-official",
+    name: "Gemini 3 Pro Image Preview (Official)",
+    description: "Official Gemini 3 Pro Image Preview channel. Supports 1K/2K/4K, up to 14 reference images and mask editing.",
+    maxN: 4,
+    maxReferenceImages: 14,
+    supportedSizes: GEMINI_IMAGE_SIZES,
+    supportedResolutions: ["1K", "2K", "4K"],
+    supportedQualities: ["auto"],
+    supportedOutputFormats: ["png"],
+    supportsImageUrls: true,
+    supportsMask: true,
+    requestMode: "async",
+    apiFamily: "gemini",
+    maxPromptLength: 1000,
+  },
+  {
+    id: "gemini-2.5-flash-image-preview",
+    name: "Gemini 2.5 Flash Image Preview",
+    description: "Gemini 2.5 Flash Image Preview (Nano Banana). Supports 1K, up to 14 reference images and mask editing.",
+    maxN: 4,
+    maxReferenceImages: 14,
+    supportedSizes: GEMINI_IMAGE_SIZES,
+    supportedResolutions: ["1K"],
+    supportedQualities: ["auto"],
+    supportedOutputFormats: ["png"],
+    supportsImageUrls: true,
+    supportsMask: true,
+    requestMode: "async",
+    apiFamily: "gemini",
+    maxPromptLength: 1000,
+  },
+  {
+    id: "gemini-2.5-flash-image-preview-official",
+    name: "Gemini 2.5 Flash Image Preview (Official)",
+    description: "Official Gemini 2.5 Flash Image Preview channel. Supports 1K, up to 14 reference images and mask editing.",
+    maxN: 4,
+    maxReferenceImages: 14,
+    supportedSizes: GEMINI_IMAGE_SIZES,
+    supportedResolutions: ["1K"],
+    supportedQualities: ["auto"],
+    supportedOutputFormats: ["png"],
+    supportsImageUrls: true,
+    supportsMask: true,
+    requestMode: "async",
+    apiFamily: "gemini",
+    maxPromptLength: 1000,
   },
   {
     id: "gpt-image-1",
@@ -272,5 +421,6 @@ export const AVAILABLE_MODELS: ModelInfo[] = [
     supportsImageUrls: false,
     supportsMask: false,
     requestMode: "sync",
+    apiFamily: "gpt",
   },
 ];

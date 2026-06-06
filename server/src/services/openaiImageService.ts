@@ -53,6 +53,10 @@ function validateParams(body: ImageGenerateRequest) {
   if (!modelInfo) {
     throw new ValidationError(`Unsupported model: ${model}`);
   }
+  const maxPromptLength = modelInfo.maxPromptLength ?? ALLOWED_VALUES.prompt.maxLength;
+  if (body.prompt.length > maxPromptLength) {
+    throw new ValidationError(`Prompt cannot exceed ${maxPromptLength} characters for ${model}.`);
+  }
   if (!(ALLOWED_VALUES.model as readonly string[]).includes(model)) {
     throw new ValidationError(`不支持的模型: ${model}，允许的模型: ${ALLOWED_VALUES.model.join(", ")}`);
   }
@@ -114,6 +118,14 @@ function validateParams(body: ImageGenerateRequest) {
   }
   if (body.image_urls && body.image_urls.length > (modelInfo.maxReferenceImages ?? ALLOWED_VALUES.image_urls.maxCount)) {
     throw new ValidationError(`参考图最多支持 ${ALLOWED_VALUES.image_urls.maxCount} 张。`);
+  }
+  if (
+    modelInfo.apiFamily === "wan" &&
+    body.image_urls &&
+    body.image_urls.length > 0 &&
+    (size === "4K" || resolution === "4K")
+  ) {
+    throw new ValidationError("Wan2.7 image-to-image/reference generation supports up to 2K.");
   }
   if (body.image_urls) {
     for (const url of body.image_urls) {
@@ -177,19 +189,25 @@ function generateImageId(): string {
  * 构建 API 请求体
  */
 function buildRequestBody(params: ReturnType<typeof validateParams>): Record<string, unknown> {
+  const modelInfo = MODEL_BY_ID.get(params.model);
+  const apiFamily = modelInfo?.apiFamily || "gpt";
   const body: Record<string, unknown> = {
     model: params.model,
     prompt: params.prompt,
     size: params.size,
-    quality: params.quality,
-    output_format: params.output_format,
-    background: params.background,
-    moderation: params.moderation,
     n: params.n,
   };
 
+  if (apiFamily === "gpt") {
+    body.quality = params.quality;
+    body.output_format = params.output_format;
+    body.background = params.background;
+    body.moderation = params.moderation;
+  }
+
   // 仅新版模型支持 resolution
-  if (params.resolution) {
+  const sizeIsResolution = apiFamily === "wan" && ["1K", "2K", "4K"].includes(params.size);
+  if (params.resolution && !sizeIsResolution) {
     body.resolution = params.resolution;
   }
 
@@ -202,7 +220,7 @@ function buildRequestBody(params: ReturnType<typeof validateParams>): Record<str
   }
 
   // output_compression 仅 jpeg/webp 有效
-  if (params.output_compression !== undefined && (params.output_format === "jpeg" || params.output_format === "webp")) {
+  if (apiFamily === "gpt" && params.output_compression !== undefined && (params.output_format === "jpeg" || params.output_format === "webp")) {
     body.output_compression = params.output_compression;
   }
 

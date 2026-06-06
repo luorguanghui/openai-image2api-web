@@ -64,6 +64,8 @@ export interface ModelInfo {
   supportsBase64ImageUrls?: boolean
   supportsMask: boolean
   requestMode?: 'async' | 'sync'
+  apiFamily?: 'gpt' | 'wan' | 'gemini'
+  maxPromptLength?: number
 }
 
 export interface ModelsResponse {
