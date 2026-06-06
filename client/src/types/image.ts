@@ -55,11 +55,15 @@ export interface ModelInfo {
   name: string
   description: string
   maxN: number
+  maxReferenceImages?: number
   supportedSizes: string[]
   supportedResolutions: string[]
   supportedQualities: string[]
+  supportedOutputFormats?: string[]
   supportsImageUrls: boolean
+  supportsBase64ImageUrls?: boolean
   supportsMask: boolean
+  requestMode?: 'async' | 'sync'
 }
 
 export interface ModelsResponse {

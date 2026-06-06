@@ -69,7 +69,10 @@ export default function ImageForm({
   const supportsImageUrls = currentModel?.supportsImageUrls ?? false
   const supportsMask = currentModel?.supportsMask ?? false
   const maxN = currentModel?.maxN ?? 4
-  const transparentUnsupported = params.model === 'gpt-image-2-official'
+  const maxReferenceImages = currentModel?.maxReferenceImages ?? 16
+  const supportedQualities = currentModel?.supportedQualities || ['auto', 'low', 'medium', 'high']
+  const supportedOutputFormats = currentModel?.supportedOutputFormats || ['png', 'jpeg', 'webp']
+  const transparentUnsupported = params.model === 'gpt-image-2-official' || params.model === 'gpt-image-2'
 
   useEffect(() => {
     setImageUrlsInput(params.image_urls?.join('\n') || '')
@@ -110,14 +113,28 @@ export default function ImageForm({
       updates.n = model.maxN
     }
 
+    if (!model.supportedQualities.includes(params.quality)) {
+      updates.quality = model.supportedQualities[0] as ImageQuality
+    }
+
+    const supportedFormats = model.supportedOutputFormats || ['png', 'jpeg', 'webp']
+    if (!supportedFormats.includes(params.output_format)) {
+      updates.output_format = supportedFormats[0] as OutputFormat
+      updates.output_compression = undefined
+    }
+
     if (!model.supportsImageUrls) {
       updates.image_urls = undefined
       updates.mask_url = undefined
       setImageUrlsInput('')
       setShowReferences(false)
+    } else if ((params.image_urls?.length || 0) > (model.maxReferenceImages ?? 16)) {
+      const nextUrls = params.image_urls?.slice(0, model.maxReferenceImages ?? 16)
+      updates.image_urls = nextUrls
+      setImageUrlsInput(nextUrls?.join('\n') || '')
     }
 
-    if (modelId === 'gpt-image-2-official' && params.background === 'transparent') {
+    if ((modelId === 'gpt-image-2-official' || modelId === 'gpt-image-2') && params.background === 'transparent') {
       updates.background = 'auto'
     }
 
@@ -126,23 +143,23 @@ export default function ImageForm({
 
   const handleImageUrlsChange = useCallback((value: string) => {
     setImageUrlsInput(value)
-    const urls = value.split('\n').map(s => s.trim()).filter(Boolean)
+    const urls = value.split('\n').map(s => s.trim()).filter(Boolean).slice(0, maxReferenceImages)
     onParamsChange({
       image_urls: urls.length > 0 ? urls : undefined,
       mask_url: urls.length > 0 ? params.mask_url : undefined,
     })
-  }, [onParamsChange, params.mask_url])
+  }, [maxReferenceImages, onParamsChange, params.mask_url])
 
   const appendReferenceUrls = useCallback((urls: string[]) => {
     const existing = imageUrlsInput.split('\n').map(s => s.trim()).filter(Boolean)
-    const nextUrls = [...existing, ...urls].slice(0, 16)
+    const nextUrls = [...existing, ...urls].slice(0, maxReferenceImages)
     const nextValue = nextUrls.join('\n')
     setImageUrlsInput(nextValue)
     onParamsChange({ image_urls: nextUrls.length > 0 ? nextUrls : undefined })
-  }, [imageUrlsInput, onParamsChange])
+  }, [imageUrlsInput, maxReferenceImages, onParamsChange])
 
   const handleReferenceUpload = useCallback(async (files: FileList | null) => {
-    const selectedFiles = Array.from(files || []).slice(0, 16)
+    const selectedFiles = Array.from(files || []).slice(0, maxReferenceImages)
     if (selectedFiles.length === 0) return
 
     setUploadingReferences(true)
@@ -156,7 +173,7 @@ export default function ImageForm({
     } finally {
       setUploadingReferences(false)
     }
-  }, [appendReferenceUrls, onUploadReferenceImages])
+  }, [appendReferenceUrls, maxReferenceImages, onUploadReferenceImages])
 
   const handleOutputFormatChange = useCallback((format: OutputFormat) => {
     onParamsChange({
@@ -272,7 +289,7 @@ export default function ImageForm({
                 onChange={(e) => onParamsChange({ quality: e.target.value as ImageQuality })}
                 className="select-field"
               >
-                {(['auto', 'low', 'medium', 'high'] as ImageQuality[]).map(q => (
+                {(supportedQualities as ImageQuality[]).map(q => (
                   <option key={q} value={q}>{q} - {QUALITY_HINTS[q]}</option>
                 ))}
               </select>
@@ -306,9 +323,9 @@ export default function ImageForm({
               onChange={(e) => handleOutputFormatChange(e.target.value as OutputFormat)}
               className="select-field"
             >
-              <option value="png">PNG</option>
-              <option value="jpeg">JPEG</option>
-              <option value="webp">WebP</option>
+              {supportedOutputFormats.map(format => (
+                <option key={format} value={format}>{format.toUpperCase()}</option>
+              ))}
             </select>
           </div>
 

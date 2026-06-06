@@ -13,7 +13,7 @@ import type {
 } from './types/image'
 
 const DEFAULT_PARAMS: Omit<GenerateImageParams, 'apiKey'> = {
-  model: 'gpt-image-2-official',
+  model: 'gpt-image-2',
   prompt: '',
   size: '1:1',
   resolution: '1k',
@@ -29,15 +29,19 @@ const DEFAULT_PARAMS: Omit<GenerateImageParams, 'apiKey'> = {
 }
 
 const MODEL_FALLBACK: ModelInfo = {
-  id: 'gpt-image-2-official',
-  name: 'GPT-Image-2（官方渠道）',
-  description: 'OpenAI 官方 gpt-image-2 模型，异步生成，支持文生图、图生图和局部重绘。',
-  maxN: 4,
+  id: 'gpt-image-2',
+  name: 'GPT-Image-2 (APIMart)',
+  description: 'APIMart gpt-image-2 async image generation model.',
+  maxN: 1,
+  maxReferenceImages: 16,
   supportedSizes: ['auto', '1:1', '3:2', '2:3', '4:3', '3:4', '5:4', '4:5', '16:9', '9:16', '2:1', '1:2', '3:1', '1:3', '21:9', '9:21'],
   supportedResolutions: ['1k', '2k', '4k'],
-  supportedQualities: ['auto', 'low', 'medium', 'high'],
+  supportedQualities: ['auto'],
+  supportedOutputFormats: ['png'],
   supportsImageUrls: true,
-  supportsMask: true,
+  supportsBase64ImageUrls: true,
+  supportsMask: false,
+  requestMode: 'async',
 }
 
 const API_KEY_STORAGE_KEY = 'image2api.apiKey'

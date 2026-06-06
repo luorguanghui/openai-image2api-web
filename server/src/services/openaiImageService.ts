@@ -8,6 +8,7 @@ import type {
 } from "../types/image.js";
 import {
   ALLOWED_VALUES,
+  AVAILABLE_MODELS,
   DEFAULT_VALUES,
   MIME_TYPES,
 } from "../types/image.js";
@@ -26,6 +27,12 @@ class ValidationError extends Error {
   }
 }
 
+const MODEL_BY_ID = new Map(AVAILABLE_MODELS.map(model => [model.id, model]));
+
+function isDataImageUrl(value: string): boolean {
+  return /^data:image\/(png|jpeg|jpg|webp);base64,/i.test(value);
+}
+
 /**
  * 校验请求参数，返回处理后的参数
  * @param body - 原始请求体
@@ -42,21 +49,25 @@ function validateParams(body: ImageGenerateRequest) {
 
   // model 校验
   const model = body.model || DEFAULT_VALUES.model;
+  const modelInfo = MODEL_BY_ID.get(model);
+  if (!modelInfo) {
+    throw new ValidationError(`Unsupported model: ${model}`);
+  }
   if (!(ALLOWED_VALUES.model as readonly string[]).includes(model)) {
     throw new ValidationError(`不支持的模型: ${model}，允许的模型: ${ALLOWED_VALUES.model.join(", ")}`);
   }
 
   // size 校验
   const size = body.size || DEFAULT_VALUES.size;
-  if (!(ALLOWED_VALUES.size as readonly string[]).includes(size)) {
+  if (!modelInfo.supportedSizes.includes(size)) {
     throw new ValidationError(`不支持的尺寸: ${size}，允许的尺寸: ${ALLOWED_VALUES.size.join(", ")}`);
   }
 
   // resolution 校验（仅 gpt-image-2/1.5 支持）
   let resolution = body.resolution || DEFAULT_VALUES.resolution;
-  const supportsResolution = model !== "gpt-image-1";
+  const supportsResolution = modelInfo.supportedResolutions.length > 0;
   if (supportsResolution) {
-    if (!(ALLOWED_VALUES.resolution as readonly string[]).includes(resolution)) {
+    if (!modelInfo.supportedResolutions.includes(resolution)) {
       throw new ValidationError(`不支持的分辨率: ${resolution}，允许的分辨率: ${ALLOWED_VALUES.resolution.join(", ")}`);
     }
   } else {
@@ -65,13 +76,14 @@ function validateParams(body: ImageGenerateRequest) {
 
   // quality 校验
   const quality = body.quality || DEFAULT_VALUES.quality;
-  if (!(ALLOWED_VALUES.quality as readonly string[]).includes(quality)) {
+  if (!modelInfo.supportedQualities.includes(quality)) {
     throw new ValidationError(`不支持的质量: ${quality}，允许的质量: ${ALLOWED_VALUES.quality.join(", ")}`);
   }
 
   // output_format 校验
   const output_format = body.output_format || DEFAULT_VALUES.output_format;
-  if (!(ALLOWED_VALUES.output_format as readonly string[]).includes(output_format)) {
+  const supportedOutputFormats = modelInfo.supportedOutputFormats || [...ALLOWED_VALUES.output_format];
+  if (!supportedOutputFormats.includes(output_format)) {
     throw new ValidationError(`不支持的输出格式: ${output_format}，允许的格式: ${ALLOWED_VALUES.output_format.join(", ")}`);
   }
 
@@ -89,7 +101,7 @@ function validateParams(body: ImageGenerateRequest) {
 
   // n 校验
   const n = body.n ?? DEFAULT_VALUES.n;
-  if (!Number.isInteger(n) || n < ALLOWED_VALUES.n.min || n > ALLOWED_VALUES.n.max) {
+  if (!Number.isInteger(n) || n < ALLOWED_VALUES.n.min || n > modelInfo.maxN) {
     throw new ValidationError(`生成数量必须是 ${ALLOWED_VALUES.n.min} 到 ${ALLOWED_VALUES.n.max} 之间的整数。`);
   }
 
@@ -97,18 +109,26 @@ function validateParams(body: ImageGenerateRequest) {
   if (body.image_urls && !Array.isArray(body.image_urls)) {
     throw new ValidationError("参考图 URL 必须是数组。");
   }
-  if (body.image_urls && body.image_urls.length > ALLOWED_VALUES.image_urls.maxCount) {
+  if (body.image_urls && body.image_urls.length > 0 && !modelInfo.supportsImageUrls) {
+    throw new ValidationError(`Model ${model} does not support reference images.`);
+  }
+  if (body.image_urls && body.image_urls.length > (modelInfo.maxReferenceImages ?? ALLOWED_VALUES.image_urls.maxCount)) {
     throw new ValidationError(`参考图最多支持 ${ALLOWED_VALUES.image_urls.maxCount} 张。`);
   }
   if (body.image_urls) {
     for (const url of body.image_urls) {
-      if (typeof url !== "string" || !/^https?:\/\//i.test(url)) {
+      const isHttpUrl = typeof url === "string" && /^https?:\/\//i.test(url);
+      const isAllowedDataUri = typeof url === "string" && Boolean(modelInfo.supportsBase64ImageUrls) && isDataImageUrl(url);
+      if (!isHttpUrl && !isAllowedDataUri) {
         throw new ValidationError("参考图 URL 必须是可公网访问的 http/https 地址。");
       }
     }
   }
 
   if (body.mask_url) {
+    if (!modelInfo.supportsMask) {
+      throw new ValidationError(`Model ${model} does not support mask_url.`);
+    }
     if (!body.image_urls || body.image_urls.length === 0) {
       throw new ValidationError("遮罩图 URL 必须搭配至少一张参考图使用。");
     }
@@ -419,7 +439,7 @@ export async function generateImage(body: ImageGenerateRequest): Promise<ImageGe
     throw error;
   }
 
-  const isNewModel = params.model.startsWith("gpt-image-2") || params.model.startsWith("gpt-image-1.5");
+  const requestMode = MODEL_BY_ID.get(params.model)?.requestMode || "async";
 
   safeLog("info", `开始生成图片，模型: ${params.model}，尺寸: ${params.size}，分辨率: ${params.resolution || "N/A"}，数量: ${params.n}`);
 
@@ -429,7 +449,7 @@ export async function generateImage(body: ImageGenerateRequest): Promise<ImageGe
   // 4. 调用 API（根据模型选择同步或异步模式）
   let apiImages: { url?: string; b64_json?: string }[];
   try {
-    if (isNewModel) {
+    if (requestMode === "async") {
       // gpt-image-2 / gpt-image-1.5 使用异步任务模式
       apiImages = await callApiAsync(apiKey, requestBody);
     } else {
