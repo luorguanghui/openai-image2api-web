@@ -1,0 +1,28 @@
+version: "3.8"
+
+services:
+  image2api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: image2api
+    restart: unless-stopped
+    ports:
+      - "80:3001"
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+    volumes:
+      - server-data:/app/server/data
+      - server-generated:/app/server/public/generated
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/api/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+volumes:
+  server-data:
+  server-generated:
