@@ -12,6 +12,7 @@ OPENAI_API_KEY=""
 CORS_ORIGIN=""
 DOMAIN=""
 INSTALL_NGINX="false"
+HTTPS_PROXY_URL=""
 
 usage() {
   cat <<'USAGE'
@@ -19,22 +20,24 @@ Usage:
   sudo bash scripts/deploy-ubuntu.sh [options]
 
 Options:
-  --repo URL          Git repository URL to clone/update on the server.
-  --branch NAME      Git branch to deploy. Default: main.
-  --dir PATH         Install directory. Default: /opt/openai-image2api-web.
-  --user NAME        Linux service user. Default: image2api.
-  --port PORT        Backend port. Default: 3001.
-  --api-key KEY      Optional OPENAI_API_KEY value written to .env.
-  --api-base-url URL API base URL. Default: https://api.apimart.ai.
-  --cors-origin URL  Optional CORS origin. Empty means same-origin only.
-  --domain DOMAIN    Domain used for nginx server_name.
-  --install-nginx    Install and configure nginx reverse proxy.
-  -h, --help         Show this help.
+  --repo URL            Git repository URL to clone/update on the server.
+  --branch NAME         Git branch to deploy. Default: main.
+  --dir PATH            Install directory. Default: /opt/openai-image2api-web.
+  --user NAME           Linux service user. Default: image2api.
+  --port PORT           Backend port. Default: 3001.
+  --api-key KEY         Optional OPENAI_API_KEY value written to .env.
+  --api-base-url URL    API base URL. Default: https://api.apimart.ai.
+  --cors-origin URL     Optional CORS origin. Empty means same-origin only.
+  --domain DOMAIN       Domain used for nginx server_name.
+  --install-nginx       Install and configure nginx reverse proxy.
+  --https-proxy URL     Set HTTPS proxy for API requests (e.g. http://127.0.0.1:7890).
+  -h, --help            Show this help.
 
 Examples:
   sudo bash scripts/deploy-ubuntu.sh
   sudo bash scripts/deploy-ubuntu.sh --repo https://github.com/OWNER/openai-image2api-web.git
   sudo bash scripts/deploy-ubuntu.sh --repo https://github.com/OWNER/openai-image2api-web.git --domain img.example.com --install-nginx
+  sudo bash scripts/deploy-ubuntu.sh --https-proxy http://127.0.0.1:7890
 USAGE
 }
 
@@ -88,6 +91,10 @@ while [[ $# -gt 0 ]]; do
     --install-nginx)
       INSTALL_NGINX="true"
       shift
+      ;;
+    --https-proxy)
+      HTTPS_PROXY_URL="${2:-}"
+      shift 2
       ;;
     -h|--help)
       usage
@@ -223,6 +230,10 @@ write_env_file() {
     set_env_value "OPENAI_API_KEY" "" "$env_file"
   fi
 
+  if [[ -n "$HTTPS_PROXY_URL" ]]; then
+    set_env_value "HTTPS_PROXY" "$HTTPS_PROXY_URL" "$env_file"
+  fi
+
   chmod 600 "$env_file"
   chown "${APP_USER}:${APP_USER}" "$env_file"
 }
@@ -248,11 +259,16 @@ install_systemd_service() {
   node_bin="$(command -v node)"
   [[ -x "$node_bin" ]] || fail "node binary not found"
 
+  local after_targets="network-online.target"
+  if systemctl is-enabled clash.service >/dev/null 2>&1; then
+    after_targets="${after_targets} clash.service"
+  fi
+
   log "Installing systemd service ${APP_NAME}.service."
   cat > "/etc/systemd/system/${APP_NAME}.service" <<SERVICE
 [Unit]
 Description=OpenAI Image2API Web
-After=network-online.target
+After=${after_targets}
 Wants=network-online.target
 
 [Service]
@@ -337,6 +353,10 @@ verify_service() {
         echo "App URL: http://YOUR_SERVER_IP:${PORT}/"
       fi
       echo "Logs: sudo journalctl -u ${APP_NAME} -f"
+
+      if [[ -n "$HTTPS_PROXY_URL" ]]; then
+        echo "Proxy: ${HTTPS_PROXY_URL} (verify: sudo journalctl -u ${APP_NAME} | grep proxy)"
+      fi
       return 0
     fi
     sleep 2

@@ -12,29 +12,31 @@ import modelsRoutes from "./routes/modelsRoutes.js";
 import uploadRoutes from "./routes/uploadRoutes.js";
 import { ensureDir } from "./utils/file.js";
 import { safeLog } from "./utils/sanitize.js";
+import { initProxy } from "./utils/proxy.js";
 
 /**
  * 启动 Express 服务
  */
 async function startServer(): Promise<void> {
+  // 初始化 HTTP 代理（如果配置了 HTTPS_PROXY 环境变量）
+  initProxy();
+
   const app = express();
 
   // ── 安全中间件 ──
   app.use(helmet({
-    contentSecurityPolicy: {
-      directives: {
-        defaultSrc: ["'self'"],
-        scriptSrc: ["'self'"],
-        styleSrc: ["'self'", "'unsafe-inline'"],
-        imgSrc: ["'self'", "data:", "blob:"],
-        connectSrc: ["'self'"],
-        fontSrc: ["'self'"],
-        objectSrc: ["'none'"],
-        frameAncestors: ["'none'"],
-      },
-    },
+    contentSecurityPolicy: false,
     crossOriginResourcePolicy: { policy: "cross-origin" },
   }));
+
+  // 手动设置 CSP（不包含 upgrade-insecure-requests）
+  app.use((_req, res, next) => {
+    res.setHeader(
+      "Content-Security-Policy",
+      "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; script-src-attr 'none'"
+    );
+    next();
+  });
 
   app.use(cors({
     origin: config.corsOrigin === "" ? false : config.corsOrigin,
