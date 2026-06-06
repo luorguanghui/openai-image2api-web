@@ -16,6 +16,21 @@ function getImageSrc(entry: HistoryEntry): string {
   return image.url || ''
 }
 
+function HistoryThumbnail({ src }: { src: string }) {
+  const [failed, setFailed] = useState(false)
+  const showImage = src && !failed
+
+  return (
+    <div className="history-thumb">
+      {showImage ? (
+        <img src={src} alt="" onError={() => setFailed(true)} />
+      ) : (
+        <div className="history-thumb-empty" aria-hidden="true" />
+      )}
+    </div>
+  )
+}
+
 export default function HistoryPanel({ history, loading, onRefresh, onClearAll, onRestore }: HistoryPanelProps) {
   const [expanded, setExpanded] = useState(false)
 
@@ -79,13 +94,7 @@ export default function HistoryPanel({ history, loading, onRefresh, onClearAll, 
                 const src = getImageSrc(entry)
                 return (
                   <article key={entry.id} className="history-row">
-                    <div className="h-16 w-16 flex-shrink-0 overflow-hidden rounded-lg bg-ink-100">
-                      {src ? (
-                        <img src={src} alt="" className="h-full w-full object-cover" />
-                      ) : (
-                        <div className="h-full w-full bg-ink-100" />
-                      )}
-                    </div>
+                    <HistoryThumbnail src={src} />
                     <div className="min-w-0 flex-1">
                       <p className="text-sm leading-snug text-ink-800">{truncatePrompt(entry.prompt)}</p>
                       <div className="mt-2 flex flex-wrap gap-2 text-xs text-ink-500">

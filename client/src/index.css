@@ -280,19 +280,26 @@
 
   .status-pill,
   .key-state {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
     border: 1px solid var(--ink-300);
     border-radius: 999px;
     background: rgba(255, 253, 247, 0.8);
     color: var(--ink-700);
     font-size: 0.72rem;
     font-weight: 700;
+    line-height: 1;
     padding: 0.32rem 0.58rem;
+    white-space: nowrap;
   }
 
   .key-state {
     background: #fff7e8;
     border-color: #e4b870;
     color: #8a560f;
+    min-width: 3.2rem;
   }
 
   .key-state.is-ready {
@@ -442,6 +449,31 @@
     border-radius: 8px;
     background: rgba(255, 253, 247, 0.7);
     padding: 0.65rem;
+  }
+
+  .history-thumb {
+    flex: 0 0 4rem;
+    width: 4rem;
+    height: 4rem;
+    overflow: hidden;
+    border: 1px solid var(--ink-200);
+    border-radius: 8px;
+    background: var(--ink-100);
+  }
+
+  .history-thumb img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .history-thumb-empty {
+    width: 100%;
+    height: 100%;
+    background:
+      linear-gradient(135deg, transparent 48%, rgba(13, 148, 136, 0.22) 49%, rgba(13, 148, 136, 0.22) 51%, transparent 52%),
+      rgba(238, 230, 216, 0.85);
   }
 
   .error-alert {
