@@ -11,6 +11,17 @@ const router = Router();
  */
 function transformRecord(record: HistoryRecord) {
   const mimeType = MIME_TYPES[record.output_format] || "image/png";
+  const images = record.images && record.images.length > 0
+    ? record.images
+    : [
+        {
+          id: record.id,
+          b64_json: "",
+          mimeType,
+          url: record.imageUrl,
+        },
+      ];
+
   return {
     id: record.id,
     prompt: record.prompt,
@@ -28,14 +39,7 @@ function transformRecord(record: HistoryRecord) {
       mask_url: record.mask_url,
       saveHistory: true,
     },
-    images: [
-      {
-        id: record.id,
-        b64_json: "",
-        mimeType,
-        url: record.imageUrl,
-      },
-    ],
+    images,
     createdAt: record.createdAt,
   };
 }

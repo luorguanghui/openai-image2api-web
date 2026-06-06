@@ -87,6 +87,7 @@ export interface HistoryRecord {
   n?: number;
   image_urls?: string[];
   mask_url?: string;
+  images?: GeneratedImage[];
   imageUrl: string;
   createdAt: string;
 }

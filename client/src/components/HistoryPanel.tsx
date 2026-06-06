@@ -9,21 +9,28 @@ interface HistoryPanelProps {
   onRestore: (entry: HistoryEntry) => void
 }
 
-function getImageSrc(entry: HistoryEntry): string {
-  const image = entry.images[0]
+function getImageSrc(entry: HistoryEntry, index = 0): string {
+  const image = entry.images[index]
   if (!image) return ''
   if (image.b64_json) return `data:${image.mimeType};base64,${image.b64_json}`
   return image.url || ''
 }
 
-function HistoryThumbnail({ src }: { src: string }) {
-  const [failed, setFailed] = useState(false)
-  const showImage = src && !failed
+function HistoryThumbnail({ entry }: { entry: HistoryEntry }) {
+  const [imageIndex, setImageIndex] = useState(0)
+  const src = getImageSrc(entry, imageIndex)
+  const showImage = Boolean(src)
 
   return (
     <div className="history-thumb">
       {showImage ? (
-        <img src={src} alt="" onError={() => setFailed(true)} />
+        <img
+          src={src}
+          alt=""
+          onError={() => {
+            setImageIndex(index => index + 1)
+          }}
+        />
       ) : (
         <div className="history-thumb-empty" aria-hidden="true" />
       )}
@@ -91,10 +98,9 @@ export default function HistoryPanel({ history, loading, onRefresh, onClearAll, 
           ) : (
             <div className="max-h-[420px] space-y-3 overflow-y-auto pr-1">
               {history.map((entry) => {
-                const src = getImageSrc(entry)
                 return (
                   <article key={entry.id} className="history-row">
-                    <HistoryThumbnail src={src} />
+                    <HistoryThumbnail entry={entry} />
                     <div className="min-w-0 flex-1">
                       <p className="text-sm leading-snug text-ink-800">{truncatePrompt(entry.prompt)}</p>
                       <div className="mt-2 flex flex-wrap gap-2 text-xs text-ink-500">

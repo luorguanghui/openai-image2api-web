@@ -564,6 +564,7 @@ export async function generateImage(body: ImageGenerateRequest): Promise<ImageGe
         n: params.n,
         image_urls: params.image_urls,
         mask_url: params.mask_url,
+        images,
         imageUrl: images[0].url,
         createdAt,
       };
