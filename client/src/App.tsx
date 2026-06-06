@@ -209,6 +209,33 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }, [models])
 
+  const handleNewConversation = useCallback(() => {
+    const defaultModel = models.find(model => model.id === DEFAULT_PARAMS.model) || models[0]
+    const nextParams = { ...DEFAULT_PARAMS, saveHistory: params.saveHistory }
+
+    if (defaultModel) {
+      nextParams.model = defaultModel.id
+      nextParams.size = defaultModel.supportedSizes.includes(DEFAULT_PARAMS.size)
+        ? DEFAULT_PARAMS.size
+        : defaultModel.supportedSizes[0] || DEFAULT_PARAMS.size
+      nextParams.resolution = defaultModel.supportedResolutions.includes(DEFAULT_PARAMS.resolution)
+        ? DEFAULT_PARAMS.resolution
+        : defaultModel.supportedResolutions[0] || ''
+      nextParams.quality = defaultModel.supportedQualities.includes(DEFAULT_PARAMS.quality)
+        ? DEFAULT_PARAMS.quality
+        : (defaultModel.supportedQualities[0] as typeof DEFAULT_PARAMS.quality) || DEFAULT_PARAMS.quality
+      nextParams.output_format = defaultModel.supportedOutputFormats?.includes(DEFAULT_PARAMS.output_format)
+        ? DEFAULT_PARAMS.output_format
+        : (defaultModel.supportedOutputFormats?.[0] as typeof DEFAULT_PARAMS.output_format) || DEFAULT_PARAMS.output_format
+      nextParams.n = Math.min(DEFAULT_PARAMS.n, defaultModel.maxN)
+    }
+
+    setParams(nextParams)
+    setImages([])
+    setError(null)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }, [models, params.saveHistory])
+
   const handleCopyParams = useCallback(async () => {
     const exportData = {
       model: params.model,
@@ -297,7 +324,16 @@ export default function App() {
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent-700">Result Preview</p>
                 <h2 className="mt-1 text-xl font-semibold text-ink-950">生成结果</h2>
               </div>
-              <div className="grid grid-cols-3 gap-2 text-center text-xs">
+              <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+                <button
+                  type="button"
+                  onClick={handleNewConversation}
+                  disabled={loading}
+                  className="btn-secondary"
+                >
+                  新建对话
+                </button>
+                <div className="grid grid-cols-3 gap-2 text-center text-xs">
                 <div className="metric-box">
                   <span>{params.resolution || 'N/A'}</span>
                   <small>分辨率</small>
@@ -310,6 +346,7 @@ export default function App() {
                   <span>{params.n}</span>
                   <small>张数</small>
                 </div>
+              </div>
               </div>
             </div>
 
