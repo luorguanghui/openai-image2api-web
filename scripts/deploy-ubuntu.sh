@@ -226,8 +226,17 @@ if [[ -r /etc/os-release ]]; then
   esac
 fi
 
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-LOCAL_REPO_DIR="$(cd -- "${SCRIPT_DIR}/.." 2>/dev/null && pwd || true)"
+SCRIPT_SOURCE=""
+if [[ ${BASH_SOURCE+x} && ${BASH_SOURCE[0]+x} ]]; then
+  SCRIPT_SOURCE="${BASH_SOURCE[0]}"
+fi
+
+SCRIPT_DIR=""
+LOCAL_REPO_DIR=""
+if [[ -n "$SCRIPT_SOURCE" && "$SCRIPT_SOURCE" != "bash" && "$SCRIPT_SOURCE" != "-s" && -e "$SCRIPT_SOURCE" ]]; then
+  SCRIPT_DIR="$(cd -- "$(dirname -- "$SCRIPT_SOURCE")" && pwd)"
+  LOCAL_REPO_DIR="$(cd -- "${SCRIPT_DIR}/.." 2>/dev/null && pwd || true)"
+fi
 INVOCATION_DIR="$(pwd -P)"
 
 shell_quote() {
