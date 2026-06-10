@@ -10,9 +10,15 @@ import historyRoutes from "./routes/historyRoutes.js";
 import healthRoutes from "./routes/healthRoutes.js";
 import modelsRoutes from "./routes/modelsRoutes.js";
 import uploadRoutes from "./routes/uploadRoutes.js";
+import authRoutes from "./routes/authRoutes.js";
+import accountRoutes from "./routes/accountRoutes.js";
+import adminRoutes from "./routes/adminRoutes.js";
 import { ensureDir } from "./utils/file.js";
 import { safeLog } from "./utils/sanitize.js";
 import { initProxy } from "./utils/proxy.js";
+import { initDatabase } from "./services/database.js";
+import { ensureBootstrapAdmin } from "./services/userService.js";
+import { migrateLegacyHistoryToConversations } from "./services/conversationService.js";
 
 /**
  * 启动 Express 服务
@@ -40,7 +46,7 @@ async function startServer(): Promise<void> {
 
   app.use(cors({
     origin: config.corsOrigin === "" ? false : config.corsOrigin,
-    methods: ["GET", "POST", "DELETE", "OPTIONS"],
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization", "X-API-Key"],
   }));
 
@@ -53,12 +59,28 @@ async function startServer(): Promise<void> {
   // ── 静态文件服务（生成的图片） ──
   const generatedDir = config.generatedDir;
   await ensureDir(generatedDir);
+  try {
+    await initDatabase();
+    await ensureBootstrapAdmin();
+    await migrateLegacyHistoryToConversations();
+  } catch (err) {
+    const dbErr = err as { code?: string; message?: string; cause?: unknown };
+    if (dbErr.code === "DB_UNAVAILABLE") {
+      safeLog("error", dbErr.message || "MySQL 数据库不可用", dbErr.cause);
+      safeLog("warn", "服务将继续启动，但登录、历史记录和管理员设置需要 MySQL 可用后才能使用。");
+    } else {
+      throw err;
+    }
+  }
   app.use("/generated", express.static(generatedDir, {
     maxAge: "1d",
     immutable: true,
   }));
 
   // ── API 路由 ──
+  app.use("/api/auth", authRoutes);
+  app.use("/api/account", accountRoutes);
+  app.use("/api/admin", adminRoutes);
   app.use("/api/generate-image", imageRoutes);
   app.use("/api/models", modelsRoutes);
   app.use("/api/uploads", uploadRoutes);

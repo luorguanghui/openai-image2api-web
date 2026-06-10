@@ -1,6 +1,9 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
 import multer from "multer";
 import { config } from "../config/env.js";
+import { authenticate } from "../middlewares/auth.js";
+import { getEffectiveApiKeyForUser } from "../services/settingsService.js";
+import type { AuthenticatedRequest } from "../types/auth.js";
 
 interface UploadResponse {
   success: true;
@@ -51,11 +54,6 @@ const upload = multer({
   },
 });
 
-function getRequestApiKey(req: Request): string {
-  const headerKey = req.get("x-api-key") || "";
-  return headerKey.trim() || config.openaiApiKey;
-}
-
 function toAppError(message: string, code: string): Error & { code: string } {
   const error = new Error(message) as Error & { code: string };
   error.code = code;
@@ -101,6 +99,7 @@ async function uploadToApimart(apiKey: string, file: Express.Multer.File) {
 
 router.post(
   "/reference",
+  authenticate,
   upload.array("images", 16),
   async (
     req: Request,
@@ -108,7 +107,8 @@ router.post(
     next: NextFunction
   ) => {
     try {
-      const apiKey = getRequestApiKey(req);
+      const authReq = req as AuthenticatedRequest;
+      const apiKey = await getEffectiveApiKeyForUser(authReq.user);
       if (!apiKey) {
         throw toAppError("请先提供 API Key，再上传参考图。", "API_KEY_MISSING");
       }
@@ -118,7 +118,7 @@ router.post(
         throw toAppError("请至少选择一张参考图。", "UPLOAD_ERROR");
       }
 
-      const uploadedFiles = await Promise.all(files.map(file => uploadToApimart(apiKey, file)));
+      const uploadedFiles = await Promise.all(files.map(file => uploadToApimart(apiKey.value, file)));
 
       res.status(200).json({
         success: true,

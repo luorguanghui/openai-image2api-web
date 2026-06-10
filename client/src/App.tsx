@@ -1,15 +1,38 @@
-import { useState, useCallback, useEffect } from 'react'
-import ApiKeyCard from './components/ApiKeyCard'
+import { useState, useCallback, useEffect, useMemo } from 'react'
+import AdminPanel from './components/AdminPanel'
+import AccountPanel from './components/AccountPanel'
+import ConversationThread from './components/ConversationThread'
 import ImageForm from './components/ImageForm'
-import ImageResult from './components/ImageResult'
 import HistoryPanel from './components/HistoryPanel'
 import ErrorAlert from './components/ErrorAlert'
-import { generateImage, fetchHistory, clearHistory, fetchModels, uploadReferenceImages } from './api/imageApi'
+import LoginView from './components/LoginView'
+import {
+  createAdminUser,
+  clearHistory,
+  fetchAdminUsers,
+  fetchBalance,
+  fetchHistory,
+  fetchMe,
+  fetchModels,
+  generateImage,
+  login,
+  logout,
+  setAuthToken,
+  updateAdminSettings,
+  updateAdminUser,
+  updateMyApiKey,
+  uploadReferenceImages,
+} from './api/imageApi'
 import type {
+  AppSettings,
+  BalanceResponse,
+  ConversationTurn,
   GenerateImageParams,
   GeneratedImage,
   HistoryEntry,
   ModelInfo,
+  PublicUser,
+  UserRole,
 } from './types/image'
 
 const DEFAULT_PARAMS: Omit<GenerateImageParams, 'apiKey'> = {
@@ -34,7 +57,7 @@ const MODEL_FALLBACK: ModelInfo = {
   description: 'APIMart gpt-image-2 async image generation model.',
   maxN: 1,
   maxReferenceImages: 16,
-  supportedSizes: ['auto', '1:1', '3:2', '2:3', '4:3', '3:4', '5:4', '4:5', '16:9', '9:16', '2:1', '1:2', '3:1', '1:3', '21:9', '9:21'],
+  supportedSizes: ['auto', '1:1', '3:2', '2:3', '3:4', '4:3', '16:9', '9:16'],
   supportedResolutions: ['1k', '2k', '4k'],
   supportedQualities: ['auto'],
   supportedOutputFormats: ['png'],
@@ -44,66 +67,58 @@ const MODEL_FALLBACK: ModelInfo = {
   requestMode: 'async',
 }
 
-const API_KEY_STORAGE_KEY = 'image2api.apiKey'
-const REMEMBER_API_KEY_STORAGE_KEY = 'image2api.rememberApiKey'
+const AUTH_TOKEN_STORAGE_KEY = 'image2api.authToken'
+
+const DEFAULT_SETTINGS: AppSettings = {
+  hasGlobalApiKey: false,
+  userApiKeysEnabled: true,
+}
+
+function sortTurns(turns: ConversationTurn[]): ConversationTurn[] {
+  return [...turns].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+}
+
+function turnsForConversation(history: HistoryEntry[], conversationId: string): ConversationTurn[] {
+  return sortTurns(history.find(entry => entry.conversationId === conversationId)?.turns || [])
+}
 
 export default function App() {
-  const [apiKey, setApiKey] = useState('')
-  const [rememberApiKey, setRememberApiKey] = useState(false)
+  const [user, setUser] = useState<PublicUser | null>(null)
+  const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS)
   const [params, setParams] = useState<Omit<GenerateImageParams, 'apiKey'>>(DEFAULT_PARAMS)
   const [images, setImages] = useState<GeneratedImage[]>([])
   const [history, setHistory] = useState<HistoryEntry[]>([])
+  const [historyScope, setHistoryScope] = useState<'own' | 'all'>('own')
+  const [conversationId, setConversationId] = useState<string | null>(null)
+  const [conversationTurns, setConversationTurns] = useState<ConversationTurn[]>([])
+  const [pendingTurn, setPendingTurn] = useState<{
+    prompt: string
+    createdAt: string
+    continueFromLastImage: boolean
+  } | null>(null)
   const [models, setModels] = useState<ModelInfo[]>([])
   const [modelsSource, setModelsSource] = useState<'local' | 'online'>('local')
   const [onlineModelCount, setOnlineModelCount] = useState<number | undefined>()
-  const [modelsLoading, setModelsLoading] = useState(true)
+  const [modelsLoading, setModelsLoading] = useState(false)
+  const [adminUsers, setAdminUsers] = useState<PublicUser[]>([])
+  const [adminUsersLoading, setAdminUsersLoading] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [booting, setBooting] = useState(true)
+  const [loginLoading, setLoginLoading] = useState(false)
   const [historyLoading, setHistoryLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    const storedRemember = localStorage.getItem(REMEMBER_API_KEY_STORAGE_KEY) === 'true'
-    const storedKey = storedRemember ? localStorage.getItem(API_KEY_STORAGE_KEY) || '' : ''
-    setRememberApiKey(storedRemember)
-    if (storedKey) {
-      setApiKey(storedKey)
-      loadModels(storedKey)
-    } else {
-      loadModels()
-    }
-    loadHistory()
-  }, [])
-
-  useEffect(() => {
-    localStorage.setItem(REMEMBER_API_KEY_STORAGE_KEY, String(rememberApiKey))
-    if (rememberApiKey && apiKey.trim()) {
-      localStorage.setItem(API_KEY_STORAGE_KEY, apiKey.trim())
-    }
-    if (!rememberApiKey) {
-      localStorage.removeItem(API_KEY_STORAGE_KEY)
-    }
-  }, [rememberApiKey, apiKey])
+  const [loginError, setLoginError] = useState<string | null>(null)
 
   const currentModel = models.find(model => model.id === params.model)
 
-  const loadModels = useCallback(async (apiKeyForOnline?: string) => {
+  const loadModels = useCallback(async () => {
     setModelsLoading(true)
     try {
-      const res = await fetchModels(apiKeyForOnline)
+      const res = await fetchModels()
       if (res.success && res.models.length > 0) {
         setModels(res.models)
         setModelsSource(res.source || 'local')
         setOnlineModelCount(res.onlineModelCount)
-        if (!res.models.find(m => m.id === DEFAULT_PARAMS.model)) {
-          const first = res.models[0]
-          setParams(prev => ({
-            ...prev,
-            model: first.id,
-            size: first.supportedSizes[0] || 'auto',
-            resolution: first.supportedResolutions[0] || '',
-            n: Math.min(prev.n, first.maxN),
-          }))
-        }
       }
     } catch {
       setModels([MODEL_FALLBACK])
@@ -114,38 +129,169 @@ export default function App() {
     }
   }, [])
 
-  const handleRefreshModels = useCallback(async () => {
-    await loadModels(apiKey)
-  }, [apiKey, loadModels])
-
-  const handleUploadReferenceImages = useCallback(async (files: File[]) => {
-    if (!apiKey.trim()) {
-      throw new Error('请先填写 API Key，再上传参考图。')
-    }
-    return uploadReferenceImages(files, apiKey.trim())
-  }, [apiKey])
-
-  const loadHistory = useCallback(async () => {
+  const loadHistory = useCallback(async (
+    scope: 'own' | 'all' = historyScope,
+    activeConversationId = conversationId
+  ) => {
     setHistoryLoading(true)
     try {
-      const res = await fetchHistory()
+      const res = await fetchHistory(scope)
       if (res.success) {
         setHistory(res.history)
+        if (activeConversationId) {
+          setConversationTurns(turnsForConversation(res.history, activeConversationId))
+        }
       }
-    } catch {
-      // History is optional; generation should not depend on it.
     } finally {
       setHistoryLoading(false)
     }
+  }, [conversationId, historyScope])
+
+  const loadAdminUsers = useCallback(async () => {
+    setAdminUsersLoading(true)
+    try {
+      const res = await fetchAdminUsers()
+      if (res.success) {
+        setAdminUsers(res.users)
+      }
+    } finally {
+      setAdminUsersLoading(false)
+    }
+  }, [])
+
+  const refreshMe = useCallback(async () => {
+    const me = await fetchMe()
+    if (me.success) {
+      setUser(me.user)
+      setSettings(me.settings)
+    }
+  }, [])
+
+  const initializeWorkspace = useCallback(async (scope: 'own' | 'all' = 'own') => {
+    await Promise.all([
+      loadModels(),
+      loadHistory(scope, null),
+    ])
+  }, [loadHistory, loadModels])
+
+  useEffect(() => {
+    const token = localStorage.getItem(AUTH_TOKEN_STORAGE_KEY) || ''
+    if (!token) {
+      setBooting(false)
+      return
+    }
+
+    setAuthToken(token)
+    fetchMe()
+      .then(async (me) => {
+        if (me.success) {
+          setUser(me.user)
+          setSettings(me.settings)
+          await initializeWorkspace('own')
+          if (me.user.role === 'admin') {
+            await loadAdminUsers()
+          }
+        }
+      })
+      .catch(() => {
+        localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY)
+        setAuthToken('')
+      })
+      .finally(() => setBooting(false))
+  }, [initializeWorkspace, loadAdminUsers])
+
+  const handleLogin = useCallback(async (username: string, password: string) => {
+    setLoginLoading(true)
+    setLoginError(null)
+    try {
+      const res = await login(username, password)
+      localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, res.token)
+      setAuthToken(res.token)
+      setUser(res.user)
+      setSettings(res.settings)
+      setHistoryScope('own')
+      await initializeWorkspace('own')
+      if (res.user.role === 'admin') {
+        await loadAdminUsers()
+      }
+    } catch (err) {
+      setLoginError(err instanceof Error ? err.message : '登录失败。')
+    } finally {
+      setLoginLoading(false)
+    }
+  }, [initializeWorkspace, loadAdminUsers])
+
+  const handleLogout = useCallback(async () => {
+    try {
+      await logout()
+    } catch {
+      // 本地退出不依赖服务端响应。
+    }
+    localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY)
+    setAuthToken('')
+    setUser(null)
+    setSettings(DEFAULT_SETTINGS)
+    setImages([])
+    setHistory([])
+    setConversationId(null)
+    setConversationTurns([])
+    setError(null)
+  }, [])
+
+  const handleSaveMyApiKey = useCallback(async (apiKey: string) => {
+    const res = await updateMyApiKey(apiKey)
+    if (res.success) {
+      setUser(res.user)
+      await refreshMe()
+      await loadModels()
+    }
+  }, [loadModels, refreshMe])
+
+  const handleRefreshBalance = useCallback(async (): Promise<BalanceResponse> => {
+    return fetchBalance()
+  }, [])
+
+  const handleSaveAdminSettings = useCallback(async (input: { globalApiKey?: string; userApiKeysEnabled?: boolean }) => {
+    const res = await updateAdminSettings(input)
+    if (res.success) {
+      setSettings(prev => ({ ...prev, ...res.settings }))
+      await refreshMe()
+      await loadModels()
+    }
+  }, [loadModels, refreshMe])
+
+  const handleCreateAdminUser = useCallback(async (input: { username: string; password: string; role: UserRole; enabled: boolean }) => {
+    await createAdminUser(input)
+    await loadAdminUsers()
+  }, [loadAdminUsers])
+
+  const handleUpdateAdminUser = useCallback(async (id: string, input: { password?: string; role?: UserRole; enabled?: boolean }) => {
+    await updateAdminUser(id, input)
+    await loadAdminUsers()
+  }, [loadAdminUsers])
+
+  const handleHistoryScopeChange = useCallback(async (scope: 'own' | 'all') => {
+    setHistoryScope(scope)
+    await loadHistory(scope, conversationId)
+  }, [conversationId, loadHistory])
+
+  const handleUploadReferenceImages = useCallback(async (files: File[]) => {
+    return uploadReferenceImages(files)
   }, [])
 
   const handleParamsChange = useCallback((partial: Partial<Omit<GenerateImageParams, 'apiKey'>>) => {
     setParams(prev => ({ ...prev, ...partial }))
   }, [])
 
+  const activeHistory = useMemo(() => history, [history])
+
   const handleGenerate = useCallback(async () => {
-    if (!apiKey.trim()) {
-      setError('请输入 APIMart API Key。')
+    if (!user) {
+      setError('请先登录。')
+      return
+    }
+    if (!settings.effectiveKeySource) {
+      setError('请先配置 API Key：管理员可设置全局 Key，或启用用户 Key 后由用户填写。')
       return
     }
     if (!params.prompt.trim()) {
@@ -153,19 +299,48 @@ export default function App() {
       return
     }
 
+    const continueFromLastImage = Boolean(
+      conversationId &&
+      conversationTurns.length > 0 &&
+      images.length > 0 &&
+      currentModel?.supportsImageUrls
+    )
+
     setError(null)
     setLoading(true)
+    setPendingTurn({
+      prompt: params.prompt.trim(),
+      createdAt: new Date().toISOString(),
+      continueFromLastImage,
+    })
 
     try {
       const response = await generateImage({
-        apiKey: apiKey.trim(),
         ...params,
+        prompt: params.prompt.trim(),
+        conversationId: conversationId || undefined,
+        continueFromLastImage,
       })
 
       if (response.success) {
+        const turn: ConversationTurn = {
+          id: response.images[0]?.id || `turn-${Date.now()}`,
+          prompt: response.params.prompt,
+          params: response.params,
+          images: response.images,
+          createdAt: response.createdAt,
+          model: response.params.model,
+        }
         setImages(response.images)
+        setConversationId(response.conversationId)
+        setConversationTurns(prev => (
+          conversationId === response.conversationId || !conversationId
+            ? sortTurns([...prev, turn])
+            : [turn]
+        ))
+        setParams(prev => ({ ...prev, prompt: '' }))
         if (params.saveHistory) {
-          loadHistory()
+          await loadHistory(historyScope, response.conversationId)
         }
       } else {
         setError('生成完成，但返回了未识别的响应。')
@@ -174,38 +349,59 @@ export default function App() {
       const message = err instanceof Error ? err.message : '发生意外错误，请稍后重试。'
       setError(message)
     } finally {
+      setPendingTurn(null)
       setLoading(false)
     }
-  }, [apiKey, params, loadHistory])
+  }, [
+    conversationId,
+    conversationTurns.length,
+    currentModel?.supportsImageUrls,
+    historyScope,
+    images.length,
+    loadHistory,
+    params,
+    settings.effectiveKeySource,
+    user,
+  ])
 
   const handleClearHistory = useCallback(async () => {
     try {
-      await clearHistory()
+      await clearHistory(historyScope)
       setHistory([])
+      setConversationTurns([])
+      setConversationId(null)
+      setImages([])
     } catch (err) {
       const message = err instanceof Error ? err.message : '清空历史记录失败。'
       setError(message)
     }
-  }, [])
+  }, [historyScope])
 
   const handleRestore = useCallback((entry: HistoryEntry) => {
-    const model = models.find(m => m.id === entry.params.model)
+    const sortedTurns = sortTurns(entry.turns)
+    const latestTurn = sortedTurns[sortedTurns.length - 1]
+    const restoreParams = latestTurn?.params || entry.params
+    const restoreImages = latestTurn?.images || entry.images
+    const model = models.find(m => m.id === restoreParams.model)
     setParams({
-      model: entry.params.model || DEFAULT_PARAMS.model,
-      prompt: entry.prompt,
-      size: entry.params.size || DEFAULT_PARAMS.size,
-      resolution: entry.params.resolution || DEFAULT_PARAMS.resolution,
-      quality: entry.params.quality || DEFAULT_PARAMS.quality,
-      output_format: entry.params.output_format || DEFAULT_PARAMS.output_format,
-      background: entry.params.background || DEFAULT_PARAMS.background,
-      moderation: entry.params.moderation || DEFAULT_PARAMS.moderation,
-      output_compression: entry.params.output_compression,
-      n: Math.min(entry.params.n || DEFAULT_PARAMS.n, model?.maxN || 4),
-      image_urls: entry.params.image_urls,
-      mask_url: entry.params.mask_url,
-      saveHistory: entry.params.saveHistory ?? DEFAULT_PARAMS.saveHistory,
+      model: restoreParams.model || DEFAULT_PARAMS.model,
+      prompt: '',
+      size: restoreParams.size || DEFAULT_PARAMS.size,
+      resolution: restoreParams.resolution || DEFAULT_PARAMS.resolution,
+      quality: restoreParams.quality || DEFAULT_PARAMS.quality,
+      output_format: restoreParams.output_format || DEFAULT_PARAMS.output_format,
+      background: restoreParams.background || DEFAULT_PARAMS.background,
+      moderation: restoreParams.moderation || DEFAULT_PARAMS.moderation,
+      output_compression: restoreParams.output_compression,
+      n: Math.min(restoreParams.n || DEFAULT_PARAMS.n, model?.maxN || 4),
+      image_urls: restoreParams.image_urls,
+      mask_url: restoreParams.mask_url,
+      saveHistory: DEFAULT_PARAMS.saveHistory,
+      conversationId: entry.conversationId,
     })
-    setImages(entry.images)
+    setConversationId(entry.conversationId)
+    setConversationTurns(sortedTurns)
+    setImages(restoreImages)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }, [models])
 
@@ -232,40 +428,27 @@ export default function App() {
 
     setParams(nextParams)
     setImages([])
+    setConversationId(null)
+    setConversationTurns([])
+    setPendingTurn(null)
     setError(null)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }, [models, params.saveHistory])
 
-  const handleCopyParams = useCallback(async () => {
-    const exportData = {
-      model: params.model,
-      prompt: params.prompt,
-      size: params.size,
-      resolution: params.resolution,
-      quality: params.quality,
-      output_format: params.output_format,
-      background: params.background,
-      moderation: params.moderation,
-      output_compression: params.output_compression,
-      n: params.n,
-      image_urls: params.image_urls,
-      mask_url: params.mask_url,
-    }
-    try {
-      await navigator.clipboard.writeText(JSON.stringify(exportData, null, 2))
-    } catch {
-      const textarea = document.createElement('textarea')
-      textarea.value = JSON.stringify(exportData, null, 2)
-      document.body.appendChild(textarea)
-      textarea.select()
-      document.execCommand('copy')
-      document.body.removeChild(textarea)
-    }
-  }, [params])
+  if (booting) {
+    return (
+      <main className="login-shell">
+        <section className="login-panel">
+          <div className="task-orbit mx-auto" aria-hidden="true"><span /><span /><span /></div>
+          <p className="mt-5 text-center text-sm text-ink-500">正在恢复登录状态...</p>
+        </section>
+      </main>
+    )
+  }
 
-  const handleDismissError = useCallback(() => {
-    setError(null)
-  }, [])
+  if (!user) {
+    return <LoginView loading={loginLoading} error={loginError} onLogin={handleLogin} />
+  }
 
   return (
     <div className="min-h-screen app-shell text-ink-900">
@@ -276,27 +459,35 @@ export default function App() {
               <span className="brand-mark" aria-hidden="true" />
               <h1 className="text-lg font-semibold tracking-tight text-ink-950">Image2API Console</h1>
             </div>
-            <p className="mt-1 text-xs text-ink-500">GPT-Image-2 官方渠道图像生成工作台</p>
+            <p className="mt-1 text-xs text-ink-500">带登录权限和对话记录隔离的图像生成工作台</p>
           </div>
           <div className="hidden items-center gap-2 sm:flex">
-            <span className="status-pill">异步任务轮询</span>
-            <span className="status-pill">最高 4K</span>
-            <span className="status-pill">最多 4 张</span>
+            <span className="status-pill">{settings.effectiveKeySource ? 'Key 已就绪' : 'Key 未配置'}</span>
+            <span className="status-pill">{historyScope === 'all' ? '管理员视图' : '个人视图'}</span>
           </div>
         </div>
       </header>
 
-      <main className="mx-auto grid max-w-7xl grid-cols-1 gap-5 px-4 py-5 sm:px-6 lg:grid-cols-[420px_minmax(0,1fr)]">
+      <main className="mx-auto grid max-w-7xl grid-cols-1 gap-5 px-4 py-5 sm:px-6 lg:grid-cols-[430px_minmax(0,1fr)]">
         <aside className="min-w-0 space-y-4 lg:sticky lg:top-24 lg:max-h-[calc(100vh-7rem)] lg:self-start lg:overflow-y-auto lg:pr-1">
-          <ApiKeyCard
-            apiKey={apiKey}
-            rememberApiKey={rememberApiKey}
-            modelsLoading={modelsLoading}
-            modelsSource={modelsSource}
-            onApiKeyChange={setApiKey}
-            onRememberApiKeyChange={setRememberApiKey}
-            onValidateApiKey={handleRefreshModels}
+          <AccountPanel
+            user={user}
+            settings={settings}
+            onSaveApiKey={handleSaveMyApiKey}
+            onRefreshBalance={handleRefreshBalance}
+            onLogout={handleLogout}
           />
+          {user.role === 'admin' && (
+            <AdminPanel
+              settings={settings}
+              users={adminUsers}
+              loading={adminUsersLoading}
+              onSaveSettings={handleSaveAdminSettings}
+              onCreateUser={handleCreateAdminUser}
+              onUpdateUser={handleUpdateAdminUser}
+              onRefreshUsers={loadAdminUsers}
+            />
+          )}
           <ImageForm
             params={params}
             models={models}
@@ -308,10 +499,31 @@ export default function App() {
             onSubmit={handleGenerate}
             loading={loading}
           />
+          {user.role === 'admin' && (
+            <section className="surface-panel p-4">
+              <h2 className="section-label">历史范围</h2>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleHistoryScopeChange('own')}
+                  className={historyScope === 'own' ? 'btn-primary compact' : 'btn-secondary'}
+                >
+                  我的
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleHistoryScopeChange('all')}
+                  className={historyScope === 'all' ? 'btn-primary compact' : 'btn-secondary'}
+                >
+                  全部
+                </button>
+              </div>
+            </section>
+          )}
           <HistoryPanel
-            history={history}
+            history={activeHistory}
             loading={historyLoading}
-            onRefresh={loadHistory}
+            onRefresh={() => loadHistory(historyScope, conversationId)}
             onClearAll={handleClearHistory}
             onRestore={handleRestore}
           />
@@ -321,8 +533,8 @@ export default function App() {
           <div className="surface-panel p-4 sm:p-5">
             <div className="flex flex-col gap-3 border-b border-ink-200 pb-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent-700">Result Preview</p>
-                <h2 className="mt-1 text-xl font-semibold text-ink-950">生成结果</h2>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent-700">Conversation</p>
+                <h2 className="mt-1 text-xl font-semibold text-ink-950">生成对话</h2>
               </div>
               <div className="flex flex-wrap items-center gap-2 sm:justify-end">
                 <button
@@ -334,63 +546,29 @@ export default function App() {
                   新建对话
                 </button>
                 <div className="grid grid-cols-3 gap-2 text-center text-xs">
-                <div className="metric-box">
-                  <span>{params.resolution || 'N/A'}</span>
-                  <small>分辨率</small>
+                  <div className="metric-box">
+                    <span>{conversationTurns.length}</span>
+                    <small>轮次</small>
+                  </div>
+                  <div className="metric-box">
+                    <span>{params.size}</span>
+                    <small>比例</small>
+                  </div>
+                  <div className="metric-box">
+                    <span>{params.resolution || 'N/A'}</span>
+                    <small>分辨率</small>
+                  </div>
                 </div>
-                <div className="metric-box">
-                  <span>{params.size}</span>
-                  <small>比例</small>
-                </div>
-                <div className="metric-box">
-                  <span>{params.n}</span>
-                  <small>张数</small>
-                </div>
-              </div>
               </div>
             </div>
 
             {error && (
               <div className="mt-4">
-                <ErrorAlert message={error} onDismiss={handleDismissError} />
+                <ErrorAlert message={error} onDismiss={() => setError(null)} />
               </div>
             )}
 
-            {loading && (
-              <div className="result-empty min-h-[520px]">
-                <div className="task-orbit" aria-hidden="true">
-                  <span />
-                  <span />
-                  <span />
-                </div>
-                <h3>任务已提交，正在等待出图</h3>
-                <p>
-                  APIMart 官方渠道会先返回 task_id，再轮询任务状态。首次查询通常等待 10-20 秒，
-                  4K + high 可能超过 120 秒。
-                </p>
-              </div>
-            )}
-
-            {!loading && images.length > 0 && (
-              <div className="mt-4">
-                <ImageResult images={images} onCopyParams={handleCopyParams} />
-              </div>
-            )}
-
-            {!loading && images.length === 0 && !error && (
-              <div className="result-empty min-h-[520px]">
-                <div className="empty-frame" aria-hidden="true">
-                  <div />
-                  <div />
-                  <div />
-                </div>
-                <h3>结果会显示在这里</h3>
-                <p>
-                  填入 API Key，写好提示词，然后选择比例、分辨率和输出格式。
-                  当前模型：{currentModel?.name || '加载中'}。
-                </p>
-              </div>
-            )}
+            <ConversationThread turns={conversationTurns} pendingTurn={pendingTurn} />
           </div>
         </section>
       </main>

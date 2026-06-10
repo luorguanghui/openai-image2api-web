@@ -2,6 +2,10 @@
 export interface ImageGenerateRequest {
   /** 用户临时 API Key（可选） */
   apiKey?: string;
+  /** 当前对话 ID；为空时服务端会创建新对话 */
+  conversationId?: string;
+  /** 是否把同一对话上一轮结果作为本轮参考图 */
+  continueFromLastImage?: boolean;
   /** 模型名称 */
   model?: string;
   /** 图片描述提示词 */
@@ -45,6 +49,7 @@ export interface GeneratedImage {
 /** 图片生成成功响应 */
 export interface ImageGenerateResponse {
   success: true;
+  conversationId: string;
   images: GeneratedImage[];
   params: {
     model: string;
@@ -75,6 +80,9 @@ export interface ErrorResponse {
 /** 历史记录条目 */
 export interface HistoryRecord {
   id: string;
+  userId: string;
+  username?: string;
+  conversationId: string;
   prompt: string;
   model: string;
   size: string;
@@ -90,6 +98,26 @@ export interface HistoryRecord {
   images?: GeneratedImage[];
   imageUrl: string;
   createdAt: string;
+}
+
+export interface ConversationTurn {
+  id: string;
+  prompt: string;
+  params: ImageGenerateResponse["params"];
+  images: GeneratedImage[];
+  createdAt: string;
+  model: string;
+}
+
+export interface ConversationRecord {
+  id: string;
+  userId: string;
+  username?: string;
+  title: string;
+  turns: ConversationTurn[];
+  latestImageUrl: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 /** 健康检查响应 */

@@ -72,8 +72,8 @@ export default function HistoryPanel({ history, loading, onRefresh, onClearAll, 
         className="flex w-full items-center justify-between gap-3 text-left"
       >
         <div>
-          <h2 className="section-label">历史记录</h2>
-          <p className="mt-1 text-xs text-ink-500">{history.length} 条记录，可恢复提示词和参数</p>
+          <h2 className="section-label">历史对话</h2>
+          <p className="mt-1 text-xs text-ink-500">{history.length} 条对话，可恢复继续调整</p>
         </div>
         <span className="text-button">{expanded ? '收起' : '展开'}</span>
       </button>
@@ -93,18 +93,21 @@ export default function HistoryPanel({ history, loading, onRefresh, onClearAll, 
 
           {history.length === 0 ? (
             <p className="rounded-lg border border-dashed border-ink-300 px-4 py-8 text-center text-sm text-ink-500">
-              暂无历史记录。
+              暂无历史对话。
             </p>
           ) : (
             <div className="max-h-[420px] space-y-3 overflow-y-auto pr-1">
               {history.map((entry) => {
                 return (
-                  <article key={entry.id} className="history-row">
+                  <article key={`${entry.userId}-${entry.id}`} className="history-row">
                     <HistoryThumbnail entry={entry} />
                     <div className="min-w-0 flex-1">
                       <p className="text-sm leading-snug text-ink-800">{truncatePrompt(entry.prompt)}</p>
                       <div className="mt-2 flex flex-wrap gap-2 text-xs text-ink-500">
-                        <span>{formatDate(entry.createdAt)}</span>
+                        <span>{formatDate(entry.updatedAt || entry.createdAt)}</span>
+                        {entry.username && <span>{entry.username}</span>}
+                        <span>{entry.turns.length} 轮</span>
+                        <span>{entry.conversationId.slice(0, 13)}</span>
                         <span>{entry.params.size}</span>
                         <span>{entry.params.resolution || 'N/A'}</span>
                       </div>
@@ -112,9 +115,9 @@ export default function HistoryPanel({ history, loading, onRefresh, onClearAll, 
                     <button
                       onClick={() => onRestore(entry)}
                       className="btn-secondary flex-shrink-0"
-                      title="恢复这条记录"
+                      title="打开这段对话"
                     >
-                      恢复
+                      打开
                     </button>
                   </article>
                 )

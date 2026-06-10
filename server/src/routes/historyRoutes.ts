@@ -1,64 +1,53 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
-import { getHistory, clearHistory } from "../services/historyService.js";
-import type { HistoryRecord, ErrorResponse } from "../types/image.js";
-import { MIME_TYPES } from "../types/image.js";
+import {
+  clearConversationsForViewer,
+  getConversationsForViewer,
+} from "../services/conversationService.js";
+import { authenticate } from "../middlewares/auth.js";
+import type { AuthenticatedRequest } from "../types/auth.js";
+import type { ConversationRecord, ErrorResponse } from "../types/image.js";
 import { safeLog } from "../utils/sanitize.js";
 
 const router = Router();
 
-/**
- * 将后端 HistoryRecord 转换为前端期望的 HistoryEntry 格式
- */
-function transformRecord(record: HistoryRecord) {
-  const mimeType = MIME_TYPES[record.output_format] || "image/png";
-  const images = record.images && record.images.length > 0
-    ? record.images
-    : [
-        {
-          id: record.id,
-          b64_json: "",
-          mimeType,
-          url: record.imageUrl,
-        },
-      ];
+router.use(authenticate);
+
+function transformRecord(record: ConversationRecord) {
+  const latestTurn = record.turns[record.turns.length - 1];
 
   return {
     id: record.id,
-    prompt: record.prompt,
-    params: {
-      model: record.model,
-      size: record.size,
-      resolution: record.resolution || "",
-      quality: record.quality,
-      output_format: record.output_format,
-      background: record.background,
-      moderation: record.moderation || "auto",
-      output_compression: record.output_compression,
-      n: record.n || 1,
-      image_urls: record.image_urls,
-      mask_url: record.mask_url,
-      saveHistory: true,
-    },
-    images,
+    userId: record.userId,
+    username: record.username,
+    conversationId: record.id,
+    title: record.title,
+    prompt: latestTurn?.prompt || record.title,
+    params: latestTurn?.params,
+    images: latestTurn?.images || [],
+    turns: record.turns,
     createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+    latestImageUrl: record.latestImageUrl,
   };
 }
 
 /**
  * GET /api/history
- * 获取历史记录列表
+ * 获取对话记录列表
  */
 router.get(
   "/",
   async (
-    _req: Request,
+    req: Request,
     res: Response<object | ErrorResponse>,
     next: NextFunction
   ) => {
     try {
-      const records = await getHistory();
+      const authReq = req as AuthenticatedRequest;
+      const scope = req.query.scope === "all" ? "all" : "own";
+      const records = await getConversationsForViewer(authReq.user, scope);
       const history = records.map(transformRecord);
-      safeLog("info", `返回 ${history.length} 条历史记录`);
+      safeLog("info", `返回 ${history.length} 条对话记录`);
       res.status(200).json({ success: true, history });
     } catch (err) {
       next(err);
@@ -68,19 +57,21 @@ router.get(
 
 /**
  * DELETE /api/history
- * 清空所有历史记录
+ * 清空对话记录
  */
 router.delete(
   "/",
   async (
-    _req: Request,
+    req: Request,
     res: Response<{ success: true; message: string } | ErrorResponse>,
     next: NextFunction
   ) => {
     try {
-      await clearHistory();
-      safeLog("info", "历史记录已清空");
-      res.status(200).json({ success: true, message: "历史记录已清空。" });
+      const authReq = req as AuthenticatedRequest;
+      const scope = req.query.scope === "all" ? "all" : "own";
+      await clearConversationsForViewer(authReq.user, scope);
+      safeLog("info", "对话记录已清空");
+      res.status(200).json({ success: true, message: "对话记录已清空。" });
     } catch (err) {
       next(err);
     }

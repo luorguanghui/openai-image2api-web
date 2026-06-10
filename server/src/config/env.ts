@@ -33,6 +33,21 @@ export const config = {
   generatedDir: new URL("../../public/generated/", import.meta.url).pathname.replace(/^\/([A-Z]:)/, "$1"),
   /** 历史记录文件路径 */
   historyFile: new URL("../../data/history.json", import.meta.url).pathname.replace(/^\/([A-Z]:)/, "$1"),
+  /** MySQL 配置 */
+  mysql: {
+    host: process.env.MYSQL_HOST || "127.0.0.1",
+    port: parseInt(process.env.MYSQL_PORT || "3306", 10),
+    user: process.env.MYSQL_USER || "root",
+    password: process.env.MYSQL_PASSWORD || "",
+    database: process.env.MYSQL_DATABASE || "openai_image2api",
+    connectionLimit: parseInt(process.env.MYSQL_CONNECTION_LIMIT || "10", 10),
+  },
+  /** 首个管理员账号（仅 users 表为空时创建） */
+  adminUsername: process.env.ADMIN_USERNAME || "admin",
+  /** 首个管理员密码（生产环境请务必覆盖） */
+  adminPassword: process.env.ADMIN_PASSWORD || "admin123",
+  /** 登录会话有效期（小时） */
+  sessionTtlHours: parseInt(process.env.SESSION_TTL_HOURS || "168", 10),
   /** 当前环境 */
   nodeEnv: process.env.NODE_ENV || "development",
   /** 应用版本 */

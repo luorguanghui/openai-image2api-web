@@ -14,7 +14,12 @@ import {
 } from "../types/image.js";
 import { writeBase64ToFile, ensureDir } from "../utils/file.js";
 import { safeLog } from "../utils/sanitize.js";
-import { addHistory } from "./historyService.js";
+import { createFollowUpReferenceUrls } from "./conversationContext.js";
+import {
+  appendConversationTurn,
+  createConversationTurn,
+  getLatestConversationTurn,
+} from "./conversationService.js";
 
 /**
  * 参数校验错误
@@ -183,6 +188,12 @@ function generateImageId(): string {
   const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
   const uuid = crypto.randomUUID().slice(0, 8);
   return `img_${date}_${uuid}`;
+}
+
+function generateConversationId(): string {
+  const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  const uuid = crypto.randomUUID().slice(0, 8);
+  return `conv_${date}_${uuid}`;
 }
 
 /**
@@ -440,17 +451,59 @@ async function downloadImageAsBase64(url: string): Promise<{ b64_json: string; m
   }
 }
 
+interface GenerateImageOptions {
+  userId?: string;
+  apiKey?: string;
+}
+
+async function enrichFollowUpReferences(
+  body: ImageGenerateRequest,
+  userId?: string
+): Promise<ImageGenerateRequest> {
+  if (!userId || !body.continueFromLastImage || !body.conversationId || (body.image_urls && body.image_urls.length > 0)) {
+    return body;
+  }
+
+  const modelId = body.model || DEFAULT_VALUES.model;
+  const modelInfo = MODEL_BY_ID.get(modelId);
+  if (!modelInfo?.supportsImageUrls) {
+    return body;
+  }
+
+  const latest = await getLatestConversationTurn(userId, body.conversationId);
+  const refs = createFollowUpReferenceUrls(latest?.images, {
+    supportsBase64ImageUrls: modelInfo.supportsBase64ImageUrls,
+    maxReferenceImages: modelInfo.maxReferenceImages,
+  });
+
+  if (refs.length === 0) {
+    return body;
+  }
+
+  safeLog("info", `已将上一轮 ${refs.length} 张图片作为本轮参考图`);
+  return {
+    ...body,
+    image_urls: refs,
+  };
+}
+
 /**
  * 执行图片生成
  * @param body - 请求参数
  * @returns 生成结果
  */
-export async function generateImage(body: ImageGenerateRequest): Promise<ImageGenerateResponse> {
+export async function generateImage(
+  body: ImageGenerateRequest,
+  options: GenerateImageOptions = {}
+): Promise<ImageGenerateResponse> {
+  const conversationId = body.conversationId?.trim() || generateConversationId();
+  const enrichedBody = await enrichFollowUpReferences({ ...body, conversationId }, options.userId);
+
   // 1. 校验参数
-  const params = validateParams(body);
+  const params = validateParams(enrichedBody);
 
   // 2. 确定 API Key
-  const apiKey = body.apiKey || config.openaiApiKey;
+  const apiKey = options.apiKey || body.apiKey || config.openaiApiKey;
   if (!apiKey) {
     const error = new Error("请提供 API Key 或在服务器配置环境变量。") as Error & { code: string };
     error.code = "API_KEY_MISSING";
@@ -547,31 +600,39 @@ export async function generateImage(body: ImageGenerateRequest): Promise<ImageGe
     }
   }
 
-  // 6. 保存历史记录
-  if (params.saveHistory && images.length > 0) {
+  const responseParams: ImageGenerateResponse["params"] = {
+    model: params.model,
+    prompt: params.prompt,
+    size: params.size,
+    resolution: params.resolution,
+    quality: params.quality,
+    output_format: params.output_format,
+    background: params.background,
+    moderation: params.moderation,
+    output_compression: params.output_compression,
+    n: params.n,
+    image_urls: params.image_urls,
+    mask_url: params.mask_url,
+  };
+
+  // 6. 保存对话记录
+  if (params.saveHistory && images.length > 0 && options.userId) {
     try {
-      const historyRecord = {
+      const turn = createConversationTurn({
         id: images[0].id,
         prompt: params.prompt,
-        model: params.model,
-        size: params.size,
-        resolution: params.resolution,
-        quality: params.quality,
-        output_format: params.output_format,
-        background: params.background,
-        moderation: params.moderation,
-        output_compression: params.output_compression,
-        n: params.n,
-        image_urls: params.image_urls,
-        mask_url: params.mask_url,
+        params: responseParams,
         images,
-        imageUrl: images[0].url,
         createdAt,
-      };
-      await addHistory(historyRecord);
+      });
+      await appendConversationTurn({
+        conversationId,
+        userId: options.userId,
+        turn,
+      });
     } catch (histErr) {
-      // 历史记录保存失败不影响主流程
-      safeLog("warn", "历史记录保存失败（不影响图片生成）", histErr);
+      // 对话记录保存失败不影响主流程
+      safeLog("warn", "对话记录保存失败（不影响图片生成）", histErr);
     }
   }
 
@@ -579,21 +640,9 @@ export async function generateImage(body: ImageGenerateRequest): Promise<ImageGe
 
   return {
     success: true,
+    conversationId,
     images,
-    params: {
-      model: params.model,
-      prompt: params.prompt,
-      size: params.size,
-      resolution: params.resolution,
-      quality: params.quality,
-      output_format: params.output_format,
-      background: params.background,
-      moderation: params.moderation,
-      output_compression: params.output_compression,
-      n: params.n,
-      image_urls: params.image_urls,
-      mask_url: params.mask_url,
-    },
+    params: responseParams,
     createdAt,
   };
 }

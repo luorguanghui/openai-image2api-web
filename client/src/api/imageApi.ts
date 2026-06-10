@@ -4,82 +4,155 @@ import type {
   HistoryResponse,
   ModelsResponse,
   ApiError,
+  AuthResponse,
+  MeResponse,
+  BalanceResponse,
+  SettingsResponse,
+  UsersResponse,
+  PublicUser,
 } from '../types/image'
 
 const API_BASE = '/api'
 
-export async function fetchModels(apiKey?: string): Promise<ModelsResponse> {
-  const headers: HeadersInit = {}
-  if (apiKey?.trim()) {
-    headers['X-API-Key'] = apiKey.trim()
+let authToken = ''
+
+export function setAuthToken(token: string) {
+  authToken = token
+}
+
+function authHeaders(extra?: HeadersInit): HeadersInit {
+  return {
+    ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+    ...(extra || {}),
   }
+}
 
-  const response = await fetch(`${API_BASE}/models`, { headers })
-
+async function parseJsonResponse<T>(response: Response, fallbackMessage: string): Promise<T> {
+  const data = await response.json().catch(() => null)
   if (!response.ok) {
-    const data = await response.json().catch(() => null)
-    throw new Error(data?.error?.message || `获取模型列表失败 (${response.status})`)
+    const err = data as ApiError | null
+    throw new Error(err?.error?.message || `${fallbackMessage} (${response.status})`)
   }
+  return data as T
+}
 
-  return response.json()
+export async function login(username: string, password: string): Promise<AuthResponse> {
+  const response = await fetch(`${API_BASE}/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+  })
+  return parseJsonResponse<AuthResponse>(response, '登录失败')
+}
+
+export async function fetchMe(): Promise<MeResponse> {
+  const response = await fetch(`${API_BASE}/auth/me`, { headers: authHeaders() })
+  return parseJsonResponse<MeResponse>(response, '获取当前用户失败')
+}
+
+export async function logout(): Promise<{ success: boolean }> {
+  const response = await fetch(`${API_BASE}/auth/logout`, {
+    method: 'POST',
+    headers: authHeaders(),
+  })
+  return parseJsonResponse<{ success: boolean }>(response, '退出登录失败')
+}
+
+export async function fetchModels(): Promise<ModelsResponse> {
+  const response = await fetch(`${API_BASE}/models`, { headers: authHeaders() })
+
+  return parseJsonResponse<ModelsResponse>(response, '获取模型列表失败')
 }
 
 export async function generateImage(params: GenerateImageParams): Promise<GenerateImageResponse> {
   const response = await fetch(`${API_BASE}/generate-image`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify(params),
   })
 
-  const data = await response.json()
-
-  if (!response.ok) {
-    const err = data as ApiError
-    throw new Error(err.error?.message || `请求失败，状态码 ${response.status}`)
-  }
-
-  return data as GenerateImageResponse
+  return parseJsonResponse<GenerateImageResponse>(response, '请求失败')
 }
 
-export async function fetchHistory(): Promise<HistoryResponse> {
-  const response = await fetch(`${API_BASE}/history`)
+export async function fetchHistory(scope: 'own' | 'all' = 'own'): Promise<HistoryResponse> {
+  const query = scope === 'all' ? '?scope=all' : ''
+  const response = await fetch(`${API_BASE}/history${query}`, { headers: authHeaders() })
 
-  if (!response.ok) {
-    const data = await response.json().catch(() => null)
-    throw new Error(data?.error?.message || `获取历史记录失败 (${response.status})`)
-  }
-
-  return response.json()
+  return parseJsonResponse<HistoryResponse>(response, '获取历史记录失败')
 }
 
-export async function clearHistory(): Promise<{ success: boolean; message: string }> {
-  const response = await fetch(`${API_BASE}/history`, { method: 'DELETE' })
+export async function clearHistory(scope: 'own' | 'all' = 'own'): Promise<{ success: boolean; message: string }> {
+  const query = scope === 'all' ? '?scope=all' : ''
+  const response = await fetch(`${API_BASE}/history${query}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  })
 
-  if (!response.ok) {
-    const data = await response.json().catch(() => null)
-    throw new Error(data?.error?.message || `清空历史记录失败 (${response.status})`)
-  }
-
-  return response.json()
+  return parseJsonResponse<{ success: boolean; message: string }>(response, '清空历史记录失败')
 }
 
-export async function uploadReferenceImages(files: File[], apiKey: string): Promise<string[]> {
+export async function uploadReferenceImages(files: File[]): Promise<string[]> {
   const formData = new FormData()
   files.forEach(file => formData.append('images', file))
 
   const response = await fetch(`${API_BASE}/uploads/reference`, {
     method: 'POST',
-    headers: {
-      'X-API-Key': apiKey,
-    },
+    headers: authHeaders(),
     body: formData,
   })
 
-  const data = await response.json()
-
-  if (!response.ok) {
-    throw new Error(data?.error?.message || `上传参考图失败 (${response.status})`)
-  }
+  const data = await parseJsonResponse<{ files?: Array<{ url: string }> }>(response, '上传参考图失败')
 
   return (data.files || []).map((file: { url: string }) => file.url)
+}
+
+export async function updateMyApiKey(apiKey: string): Promise<{ success: boolean; user: PublicUser }> {
+  const response = await fetch(`${API_BASE}/account/api-key`, {
+    method: 'PUT',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ apiKey }),
+  })
+  return parseJsonResponse<{ success: boolean; user: PublicUser }>(response, '保存 API Key 失败')
+}
+
+export async function fetchBalance(): Promise<BalanceResponse> {
+  const response = await fetch(`${API_BASE}/account/balance`, { headers: authHeaders() })
+  return parseJsonResponse<BalanceResponse>(response, '余额查询失败')
+}
+
+export async function fetchAdminSettings(): Promise<SettingsResponse> {
+  const response = await fetch(`${API_BASE}/admin/settings`, { headers: authHeaders() })
+  return parseJsonResponse<SettingsResponse>(response, '获取管理员设置失败')
+}
+
+export async function updateAdminSettings(input: { globalApiKey?: string; userApiKeysEnabled?: boolean }): Promise<SettingsResponse> {
+  const response = await fetch(`${API_BASE}/admin/settings`, {
+    method: 'PATCH',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify(input),
+  })
+  return parseJsonResponse<SettingsResponse>(response, '保存管理员设置失败')
+}
+
+export async function fetchAdminUsers(): Promise<UsersResponse> {
+  const response = await fetch(`${API_BASE}/admin/users`, { headers: authHeaders() })
+  return parseJsonResponse<UsersResponse>(response, '获取用户列表失败')
+}
+
+export async function createAdminUser(input: { username: string; password: string; role: 'admin' | 'user'; enabled: boolean }): Promise<{ success: boolean; user: PublicUser }> {
+  const response = await fetch(`${API_BASE}/admin/users`, {
+    method: 'POST',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify(input),
+  })
+  return parseJsonResponse<{ success: boolean; user: PublicUser }>(response, '创建用户失败')
+}
+
+export async function updateAdminUser(id: string, input: { password?: string; role?: 'admin' | 'user'; enabled?: boolean }): Promise<{ success: boolean; user: PublicUser }> {
+  const response = await fetch(`${API_BASE}/admin/users/${id}`, {
+    method: 'PATCH',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify(input),
+  })
+  return parseJsonResponse<{ success: boolean; user: PublicUser }>(response, '更新用户失败')
 }

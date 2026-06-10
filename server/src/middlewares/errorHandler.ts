@@ -28,6 +28,21 @@ export function errorHandler(
       errorCode = "API_KEY_MISSING";
       message = err.message;
       break;
+    case "AUTH_REQUIRED":
+      statusCode = 401;
+      errorCode = "AUTH_REQUIRED";
+      message = err.message;
+      break;
+    case "USER_DISABLED":
+      statusCode = 403;
+      errorCode = "USER_DISABLED";
+      message = err.message;
+      break;
+    case "FORBIDDEN":
+      statusCode = 403;
+      errorCode = "FORBIDDEN";
+      message = err.message;
+      break;
     case "OPENAI_API_ERROR":
       statusCode = 502;
       errorCode = "OPENAI_API_ERROR";

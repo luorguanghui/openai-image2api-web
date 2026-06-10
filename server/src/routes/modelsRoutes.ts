@@ -2,6 +2,9 @@ import { Router, type Request, type NextFunction } from "express";
 import { AVAILABLE_MODELS } from "../types/image.js";
 import { config } from "../config/env.js";
 import { safeLog } from "../utils/sanitize.js";
+import { authenticate } from "../middlewares/auth.js";
+import { getEffectiveApiKeyForUser } from "../services/settingsService.js";
+import type { AuthenticatedRequest } from "../types/auth.js";
 
 const router = Router();
 
@@ -15,11 +18,6 @@ interface OnlineModelsResponse {
 
 const COMPATIBLE_IMAGE_MODEL_IDS = new Set(AVAILABLE_MODELS.map(model => model.id));
 const MODEL_BY_ID = new Map(AVAILABLE_MODELS.map(model => [model.id, model]));
-
-function getRequestApiKey(req: Request): string {
-  const headerKey = req.get("x-api-key") || "";
-  return headerKey.trim() || config.openaiApiKey;
-}
 
 async function fetchOnlineModelIds(apiKey: string): Promise<string[]> {
   const controller = new AbortController();
@@ -87,14 +85,21 @@ function createOnlineImageModel(id: string) {
  */
 router.get(
   "/",
+  authenticate,
   async (
     req: Request,
     res,
     next: NextFunction
   ) => {
     try {
-      const apiKey = getRequestApiKey(req);
+      const authReq = req as AuthenticatedRequest;
 
+      let apiKey = "";
+      try {
+        apiKey = (await getEffectiveApiKeyForUser(authReq.user)).value;
+      } catch {
+        apiKey = "";
+      }
       if (!apiKey) {
         res.status(200).json({
           success: true,
