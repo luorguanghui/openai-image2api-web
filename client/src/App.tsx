@@ -21,9 +21,12 @@ import {
   updateAdminSettings,
   updateAdminUser,
   updateMyApiKey,
+  updateMyPassword,
   uploadReferenceImages,
 } from './api/imageApi'
 import type {
+  AdminCreateUserInput,
+  AdminUpdateUserInput,
   AppSettings,
   BalanceResponse,
   ConversationTurn,
@@ -32,7 +35,6 @@ import type {
   HistoryEntry,
   ModelInfo,
   PublicUser,
-  UserRole,
 } from './types/image'
 
 const DEFAULT_PARAMS: Omit<GenerateImageParams, 'apiKey'> = {
@@ -247,6 +249,10 @@ export default function App() {
     }
   }, [loadModels, refreshMe])
 
+  const handleUpdateMyPassword = useCallback(async (input: { currentPassword: string; newPassword: string }) => {
+    await updateMyPassword(input)
+  }, [])
+
   const handleRefreshBalance = useCallback(async (): Promise<BalanceResponse> => {
     return fetchBalance()
   }, [])
@@ -260,12 +266,12 @@ export default function App() {
     }
   }, [loadModels, refreshMe])
 
-  const handleCreateAdminUser = useCallback(async (input: { username: string; password: string; role: UserRole; enabled: boolean }) => {
+  const handleCreateAdminUser = useCallback(async (input: AdminCreateUserInput) => {
     await createAdminUser(input)
     await loadAdminUsers()
   }, [loadAdminUsers])
 
-  const handleUpdateAdminUser = useCallback(async (id: string, input: { password?: string; role?: UserRole; enabled?: boolean }) => {
+  const handleUpdateAdminUser = useCallback(async (id: string, input: AdminUpdateUserInput) => {
     await updateAdminUser(id, input)
     await loadAdminUsers()
   }, [loadAdminUsers])
@@ -474,6 +480,7 @@ export default function App() {
             user={user}
             settings={settings}
             onSaveApiKey={handleSaveMyApiKey}
+            onUpdatePassword={handleUpdateMyPassword}
             onRefreshBalance={handleRefreshBalance}
             onLogout={handleLogout}
           />

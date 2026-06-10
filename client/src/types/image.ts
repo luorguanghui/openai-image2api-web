@@ -122,8 +122,24 @@ export interface PublicUser {
   role: UserRole
   enabled: boolean
   hasApiKey: boolean
+  canUseAdminApiKey: boolean
   createdAt?: string
   updatedAt?: string
+}
+
+export interface AdminCreateUserInput {
+  username: string
+  password: string
+  role: UserRole
+  enabled: boolean
+  canUseAdminApiKey: boolean
+}
+
+export interface AdminUpdateUserInput {
+  password?: string
+  role?: UserRole
+  enabled?: boolean
+  canUseAdminApiKey?: boolean
 }
 
 export interface AppSettings {

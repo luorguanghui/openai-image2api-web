@@ -112,6 +112,21 @@ async function ensureIndex(tableName: string, indexName: string, createSql: stri
   }
 }
 
+async function ensureColumn(tableName: string, columnName: string, alterSql: string): Promise<void> {
+  const existing = await query<{ count: number }>(
+    `SELECT COUNT(*) AS count
+     FROM information_schema.columns
+     WHERE table_schema = DATABASE()
+       AND table_name = ?
+       AND column_name = ?`,
+    [tableName, columnName]
+  );
+
+  if (Number(existing[0]?.count || 0) === 0) {
+    await execute(alterSql);
+  }
+}
+
 export async function initDatabase(): Promise<void> {
   await getPool();
 
@@ -134,12 +149,19 @@ export async function initDatabase(): Promise<void> {
       role ENUM('admin', 'user') NOT NULL DEFAULT 'user',
       enabled BOOLEAN NOT NULL DEFAULT TRUE,
       api_key TEXT NULL,
+      can_use_admin_api_key BOOLEAN NOT NULL DEFAULT TRUE,
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       INDEX idx_users_role (role),
       INDEX idx_users_enabled (enabled)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
+
+  await ensureColumn(
+    "users",
+    "can_use_admin_api_key",
+    "ALTER TABLE users ADD COLUMN can_use_admin_api_key BOOLEAN NOT NULL DEFAULT TRUE AFTER api_key"
+  );
 
   await execute(`
     CREATE TABLE IF NOT EXISTS sessions (

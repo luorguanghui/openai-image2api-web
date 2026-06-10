@@ -13,6 +13,7 @@ export interface AuthUser extends AuthUserSummary {
   enabled: boolean;
   apiKey?: string | null;
   hasApiKey: boolean;
+  canUseAdminApiKey: boolean;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -23,6 +24,7 @@ export interface PublicUser {
   role: UserRole;
   enabled: boolean;
   hasApiKey: boolean;
+  canUseAdminApiKey: boolean;
   createdAt?: string;
   updatedAt?: string;
 }

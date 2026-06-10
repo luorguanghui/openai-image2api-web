@@ -12,6 +12,7 @@ interface UserRow extends Record<string, unknown> {
   role: UserRole;
   enabled: number | boolean;
   api_key: string | null;
+  can_use_admin_api_key?: number | boolean | null;
   created_at: Date | string;
   updated_at: Date | string;
 }
@@ -30,6 +31,9 @@ function toAuthUser(row: UserRow): AuthUser {
     enabled: Boolean(row.enabled),
     apiKey,
     hasApiKey: Boolean(apiKey.trim()),
+    canUseAdminApiKey: row.can_use_admin_api_key === undefined || row.can_use_admin_api_key === null
+      ? true
+      : Boolean(row.can_use_admin_api_key),
     createdAt: toIso(row.created_at),
     updatedAt: toIso(row.updated_at),
   };
@@ -42,6 +46,7 @@ export function toPublicUser(user: AuthUser): PublicUser {
     role: user.role,
     enabled: user.enabled,
     hasApiKey: user.hasApiKey,
+    canUseAdminApiKey: user.canUseAdminApiKey,
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
   };
@@ -149,6 +154,7 @@ export async function createUser(input: {
   password: string;
   role?: UserRole;
   enabled?: boolean;
+  canUseAdminApiKey?: boolean;
 }): Promise<PublicUser> {
   const username = normalizeUsername(input.username);
   if (!/^[a-z0-9_.-]{3,80}$/.test(username)) {
@@ -166,8 +172,8 @@ export async function createUser(input: {
   const id = `usr_${crypto.randomUUID()}`;
   const passwordHash = await hashPassword(input.password);
   await execute(
-    `INSERT INTO users (id, username, password_hash, password_salt, role, enabled)
-     VALUES (?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO users (id, username, password_hash, password_salt, role, enabled, can_use_admin_api_key)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
     [
       id,
       username,
@@ -175,6 +181,7 @@ export async function createUser(input: {
       passwordHash.salt,
       input.role || "user",
       input.enabled ?? true,
+      input.canUseAdminApiKey ?? true,
     ]
   );
 
@@ -191,6 +198,7 @@ export async function updateUser(
     password?: string;
     role?: UserRole;
     enabled?: boolean;
+    canUseAdminApiKey?: boolean;
   }
 ): Promise<PublicUser> {
   const user = await findUserById(id);
@@ -208,6 +216,10 @@ export async function updateUser(
   if (input.enabled !== undefined) {
     updates.push("enabled = ?");
     params.push(input.enabled);
+  }
+  if (input.canUseAdminApiKey !== undefined) {
+    updates.push("can_use_admin_api_key = ?");
+    params.push(input.canUseAdminApiKey);
   }
   if (input.password !== undefined) {
     if (input.password.length < 6) {
@@ -228,6 +240,35 @@ export async function updateUser(
     throw new Error("用户更新失败。");
   }
   return toPublicUser(updated);
+}
+
+export async function updateOwnPassword(
+  userId: string,
+  currentPassword: string,
+  newPassword: string
+): Promise<void> {
+  const rows = await query<UserRow>("SELECT * FROM users WHERE id = ? LIMIT 1", [userId]);
+  const row = rows[0];
+  if (!row) {
+    throw validationError("User does not exist.");
+  }
+
+  const ok = await verifyPassword(currentPassword, row.password_salt, row.password_hash);
+  if (!ok) {
+    const error = new Error("Current password is incorrect.") as Error & { code: string };
+    error.code = "AUTH_REQUIRED";
+    throw error;
+  }
+
+  if (newPassword.length < 6) {
+    throw validationError("Password must be at least 6 characters.");
+  }
+
+  const passwordHash = await hashPassword(newPassword);
+  await execute(
+    "UPDATE users SET password_hash = ?, password_salt = ? WHERE id = ?",
+    [passwordHash.hash, passwordHash.salt, userId]
+  );
 }
 
 export async function setUserApiKey(userId: string, apiKey: string): Promise<PublicUser> {

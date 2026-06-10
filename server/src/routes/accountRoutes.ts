@@ -3,7 +3,7 @@ import { authenticate } from "../middlewares/auth.js";
 import type { AuthenticatedRequest } from "../types/auth.js";
 import { fetchTokenBalance } from "../services/balanceService.js";
 import { getEffectiveApiKeyForUser, getSettings } from "../services/settingsService.js";
-import { setUserApiKey, toPublicUser } from "../services/userService.js";
+import { setUserApiKey, toPublicUser, updateOwnPassword } from "../services/userService.js";
 
 const router = Router();
 
@@ -37,6 +37,27 @@ router.put(
       const authReq = req as AuthenticatedRequest;
       const user = await setUserApiKey(authReq.user.id, req.body.apiKey || "");
       res.status(200).json({ success: true, user });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.patch(
+  "/password",
+  async (
+    req: Request<object, object, { currentPassword?: string; newPassword?: string }>,
+    res: Response,
+    next: NextFunction
+  ) => {
+    try {
+      const authReq = req as AuthenticatedRequest;
+      await updateOwnPassword(
+        authReq.user.id,
+        req.body.currentPassword || "",
+        req.body.newPassword || ""
+      );
+      res.status(200).json({ success: true });
     } catch (err) {
       next(err);
     }

@@ -5,6 +5,7 @@ interface AccountPanelProps {
   user: PublicUser
   settings: AppSettings
   onSaveApiKey: (apiKey: string) => Promise<void>
+  onUpdatePassword: (input: { currentPassword: string; newPassword: string }) => Promise<void>
   onRefreshBalance: () => Promise<BalanceResponse>
   onLogout: () => void
 }
@@ -19,14 +20,21 @@ export default function AccountPanel({
   user,
   settings,
   onSaveApiKey,
+  onUpdatePassword,
   onRefreshBalance,
   onLogout,
 }: AccountPanelProps) {
   const [apiKey, setApiKey] = useState('')
   const [saving, setSaving] = useState(false)
   const [checking, setChecking] = useState(false)
+  const [passwordOpen, setPasswordOpen] = useState(false)
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [savingPassword, setSavingPassword] = useState(false)
   const [balance, setBalance] = useState<BalanceResponse | null>(null)
   const [message, setMessage] = useState<string | null>(null)
+  const [passwordMessage, setPasswordMessage] = useState<string | null>(null)
 
   const handleSave = useCallback(async () => {
     setSaving(true)
@@ -54,6 +62,27 @@ export default function AccountPanel({
       setChecking(false)
     }
   }, [onRefreshBalance])
+
+  const handleUpdatePassword = useCallback(async () => {
+    setPasswordMessage(null)
+    if (newPassword !== confirmPassword) {
+      setPasswordMessage('两次输入的新密码不一致。')
+      return
+    }
+
+    setSavingPassword(true)
+    try {
+      await onUpdatePassword({ currentPassword, newPassword })
+      setCurrentPassword('')
+      setNewPassword('')
+      setConfirmPassword('')
+      setPasswordMessage('密码已更新。')
+    } catch (err) {
+      setPasswordMessage(err instanceof Error ? err.message : '修改密码失败。')
+    } finally {
+      setSavingPassword(false)
+    }
+  }, [confirmPassword, currentPassword, newPassword, onUpdatePassword])
 
   const keySource = settings.effectiveKeySource
     ? KEY_SOURCE_LABELS[settings.effectiveKeySource]
@@ -123,6 +152,55 @@ export default function AccountPanel({
           </div>
         )}
         {message && <p className="text-xs text-ink-500">{message}</p>}
+
+        <div className="rounded-lg border border-ink-200 bg-white/45">
+          <button
+            type="button"
+            onClick={() => setPasswordOpen(value => !value)}
+            className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left"
+          >
+            <span className="text-xs font-bold text-ink-800">修改密码</span>
+            <span className="text-button">{passwordOpen ? '收起' : '展开'}</span>
+          </button>
+
+          {passwordOpen && (
+            <div className="space-y-2 border-t border-ink-200 px-3 py-3">
+              <input
+                type="password"
+                value={currentPassword}
+                onChange={(event) => setCurrentPassword(event.target.value)}
+                placeholder="当前密码"
+                className="input-field text-sm"
+                autoComplete="current-password"
+              />
+              <input
+                type="password"
+                value={newPassword}
+                onChange={(event) => setNewPassword(event.target.value)}
+                placeholder="新密码"
+                className="input-field text-sm"
+                autoComplete="new-password"
+              />
+              <input
+                type="password"
+                value={confirmPassword}
+                onChange={(event) => setConfirmPassword(event.target.value)}
+                placeholder="确认新密码"
+                className="input-field text-sm"
+                autoComplete="new-password"
+              />
+              <button
+                type="button"
+                onClick={handleUpdatePassword}
+                disabled={savingPassword || !currentPassword || !newPassword || !confirmPassword}
+                className="btn-secondary w-full"
+              >
+                {savingPassword ? '更新中...' : '更新密码'}
+              </button>
+              {passwordMessage && <p className="text-xs text-ink-500">{passwordMessage}</p>}
+            </div>
+          )}
+        </div>
       </div>
     </section>
   )

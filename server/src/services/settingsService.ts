@@ -46,6 +46,7 @@ export async function getSettings(user?: AuthUser): Promise<AppSettings> {
         globalApiKey: raw.globalApiKey,
         envApiKey: config.openaiApiKey,
         userApiKeysEnabled: raw.userApiKeysEnabled,
+        canUseAdminApiKey: user.canUseAdminApiKey,
       }).source;
     } catch {
       effectiveKeySource = undefined;
@@ -89,5 +90,6 @@ export async function getEffectiveApiKeyForUser(user: AuthUser): Promise<Resolve
     globalApiKey: raw.globalApiKey,
     envApiKey: config.openaiApiKey,
     userApiKeysEnabled: raw.userApiKeysEnabled,
+    canUseAdminApiKey: user.canUseAdminApiKey,
   });
 }

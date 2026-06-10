@@ -5,6 +5,7 @@ export interface ResolveApiKeyInput {
   globalApiKey?: string | null;
   envApiKey?: string | null;
   userApiKeysEnabled: boolean;
+  canUseAdminApiKey: boolean;
 }
 
 export interface ResolvedApiKey {
@@ -22,14 +23,16 @@ export function resolveEffectiveApiKey(input: ResolveApiKeyInput): ResolvedApiKe
     return { value: userApiKey, source: "user" };
   }
 
-  const globalApiKey = cleanKey(input.globalApiKey);
-  if (globalApiKey) {
-    return { value: globalApiKey, source: "admin" };
-  }
+  if (input.canUseAdminApiKey) {
+    const globalApiKey = cleanKey(input.globalApiKey);
+    if (globalApiKey) {
+      return { value: globalApiKey, source: "admin" };
+    }
 
-  const envApiKey = cleanKey(input.envApiKey);
-  if (envApiKey) {
-    return { value: envApiKey, source: "env" };
+    const envApiKey = cleanKey(input.envApiKey);
+    if (envApiKey) {
+      return { value: envApiKey, source: "env" };
+    }
   }
 
   const error = new Error("请先配置 API Key：管理员可设置全局 Key，或启用用户 Key 后由用户填写。") as Error & { code: string };

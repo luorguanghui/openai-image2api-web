@@ -54,7 +54,13 @@ router.get(
 router.post(
   "/users",
   async (
-    req: Request<object, object, { username?: string; password?: string; role?: UserRole; enabled?: boolean }>,
+    req: Request<object, object, {
+      username?: string;
+      password?: string;
+      role?: UserRole;
+      enabled?: boolean;
+      canUseAdminApiKey?: boolean;
+    }>,
     res: Response,
     next: NextFunction
   ) => {
@@ -64,6 +70,7 @@ router.post(
         password: req.body.password || "",
         role: req.body.role === "admin" ? "admin" : "user",
         enabled: req.body.enabled ?? true,
+        canUseAdminApiKey: req.body.canUseAdminApiKey ?? true,
       });
       res.status(201).json({ success: true, user });
     } catch (err) {
@@ -75,7 +82,12 @@ router.post(
 router.patch(
   "/users/:id",
   async (
-    req: Request<{ id: string }, object, { password?: string; role?: UserRole; enabled?: boolean }>,
+    req: Request<{ id: string }, object, {
+      password?: string;
+      role?: UserRole;
+      enabled?: boolean;
+      canUseAdminApiKey?: boolean;
+    }>,
     res: Response,
     next: NextFunction
   ) => {
@@ -91,6 +103,7 @@ router.patch(
         password: req.body.password,
         role: req.body.role,
         enabled: req.body.enabled,
+        canUseAdminApiKey: req.body.canUseAdminApiKey,
       });
       res.status(200).json({ success: true, user });
     } catch (err) {

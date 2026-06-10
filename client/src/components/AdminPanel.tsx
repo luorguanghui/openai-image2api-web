@@ -1,13 +1,13 @@
 import { useCallback, useState } from 'react'
-import type { AppSettings, PublicUser, UserRole } from '../types/image'
+import type { AdminCreateUserInput, AdminUpdateUserInput, AppSettings, PublicUser, UserRole } from '../types/image'
 
 interface AdminPanelProps {
   settings: AppSettings
   users: PublicUser[]
   loading: boolean
   onSaveSettings: (input: { globalApiKey?: string; userApiKeysEnabled?: boolean }) => Promise<void>
-  onCreateUser: (input: { username: string; password: string; role: UserRole; enabled: boolean }) => Promise<void>
-  onUpdateUser: (id: string, input: { password?: string; role?: UserRole; enabled?: boolean }) => Promise<void>
+  onCreateUser: (input: AdminCreateUserInput) => Promise<void>
+  onUpdateUser: (id: string, input: AdminUpdateUserInput) => Promise<void>
   onRefreshUsers: () => Promise<void>
 }
 
@@ -26,6 +26,8 @@ export default function AdminPanel({
   const [newUsername, setNewUsername] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [newRole, setNewRole] = useState<UserRole>('user')
+  const [newCanUseAdminApiKey, setNewCanUseAdminApiKey] = useState(true)
+  const [resetPasswords, setResetPasswords] = useState<Record<string, string>>({})
   const [message, setMessage] = useState<string | null>(null)
 
   const handleSaveSettings = useCallback(async () => {
@@ -50,15 +52,42 @@ export default function AdminPanel({
         password: newPassword,
         role: newRole,
         enabled: true,
+        canUseAdminApiKey: newCanUseAdminApiKey,
       })
       setNewUsername('')
       setNewPassword('')
       setNewRole('user')
+      setNewCanUseAdminApiKey(true)
       setMessage('用户已创建。')
     } catch (err) {
       setMessage(err instanceof Error ? err.message : '创建用户失败。')
     }
-  }, [newPassword, newRole, newUsername, onCreateUser])
+  }, [newCanUseAdminApiKey, newPassword, newRole, newUsername, onCreateUser])
+
+  const handleUpdateUser = useCallback(async (id: string, input: AdminUpdateUserInput) => {
+    setMessage(null)
+    try {
+      await onUpdateUser(id, input)
+      setMessage('用户已更新。')
+      return true
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : '更新用户失败。')
+      return false
+    }
+  }, [onUpdateUser])
+
+  const handleResetPassword = useCallback(async (id: string) => {
+    const password = resetPasswords[id] || ''
+    if (!password) {
+      setMessage('请输入新的密码。')
+      return
+    }
+
+    const updated = await handleUpdateUser(id, { password })
+    if (updated) {
+      setResetPasswords(prev => ({ ...prev, [id]: '' }))
+    }
+  }, [handleUpdateUser, resetPasswords])
 
   return (
     <section className="surface-panel p-4">
@@ -135,6 +164,14 @@ export default function AdminPanel({
                 <option value="user">用户</option>
                 <option value="admin">管理员</option>
               </select>
+              <label className="toggle-row justify-start rounded-lg border border-ink-200 bg-white/55 px-3 py-2">
+                <input
+                  type="checkbox"
+                  checked={newCanUseAdminApiKey}
+                  onChange={(event) => setNewCanUseAdminApiKey(event.target.checked)}
+                />
+                <span>允许管理员 Key</span>
+              </label>
               <button type="button" onClick={handleCreateUser} className="btn-secondary">
                 创建
               </button>
@@ -151,20 +188,55 @@ export default function AdminPanel({
             <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
               {users.map(user => (
                 <article key={user.id} className="admin-user-row">
-                  <div className="min-w-0">
+                  <div className="min-w-0 admin-user-main">
                     <p className="truncate text-sm font-semibold text-ink-900">{user.username}</p>
                     <p className="text-xs text-ink-500">
                       {user.role === 'admin' ? '管理员' : '用户'} · {user.hasApiKey ? '有个人 Key' : '无个人 Key'}
                     </p>
                   </div>
-                  <label className="toggle-row">
+                  <select
+                    value={user.role}
+                    onChange={(event) => handleUpdateUser(user.id, { role: event.target.value as UserRole })}
+                    className="select-field admin-user-role text-sm"
+                  >
+                    <option value="user">用户</option>
+                    <option value="admin">管理员</option>
+                  </select>
+                  <div className="admin-user-toggles">
+                    <label className="toggle-row">
+                      <input
+                        type="checkbox"
+                        checked={user.enabled}
+                        onChange={(event) => handleUpdateUser(user.id, { enabled: event.target.checked })}
+                      />
+                      <span>{user.enabled ? '启用' : '停用'}</span>
+                    </label>
+                    <label className="toggle-row">
+                      <input
+                        type="checkbox"
+                        checked={user.canUseAdminApiKey ?? true}
+                        onChange={(event) => handleUpdateUser(user.id, { canUseAdminApiKey: event.target.checked })}
+                      />
+                      <span>允许使用管理员 Key</span>
+                    </label>
+                  </div>
+                  <div className="admin-user-reset">
                     <input
-                      type="checkbox"
-                      checked={user.enabled}
-                      onChange={(event) => onUpdateUser(user.id, { enabled: event.target.checked })}
+                      type="password"
+                      value={resetPasswords[user.id] || ''}
+                      onChange={(event) => setResetPasswords(prev => ({ ...prev, [user.id]: event.target.value }))}
+                      placeholder="重置密码"
+                      className="input-field text-sm"
+                      autoComplete="new-password"
                     />
-                    <span>{user.enabled ? '启用' : '停用'}</span>
-                  </label>
+                    <button
+                      type="button"
+                      onClick={() => handleResetPassword(user.id)}
+                      className="btn-secondary"
+                    >
+                      重置
+                    </button>
+                  </div>
                 </article>
               ))}
             </div>

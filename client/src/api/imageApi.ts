@@ -10,6 +10,8 @@ import type {
   SettingsResponse,
   UsersResponse,
   PublicUser,
+  AdminCreateUserInput,
+  AdminUpdateUserInput,
 } from '../types/image'
 
 const API_BASE = '/api'
@@ -115,6 +117,18 @@ export async function updateMyApiKey(apiKey: string): Promise<{ success: boolean
   return parseJsonResponse<{ success: boolean; user: PublicUser }>(response, '保存 API Key 失败')
 }
 
+export async function updateMyPassword(input: {
+  currentPassword: string
+  newPassword: string
+}): Promise<{ success: boolean }> {
+  const response = await fetch(`${API_BASE}/account/password`, {
+    method: 'PATCH',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify(input),
+  })
+  return parseJsonResponse<{ success: boolean }>(response, '修改密码失败')
+}
+
 export async function fetchBalance(): Promise<BalanceResponse> {
   const response = await fetch(`${API_BASE}/account/balance`, { headers: authHeaders() })
   return parseJsonResponse<BalanceResponse>(response, '余额查询失败')
@@ -139,7 +153,7 @@ export async function fetchAdminUsers(): Promise<UsersResponse> {
   return parseJsonResponse<UsersResponse>(response, '获取用户列表失败')
 }
 
-export async function createAdminUser(input: { username: string; password: string; role: 'admin' | 'user'; enabled: boolean }): Promise<{ success: boolean; user: PublicUser }> {
+export async function createAdminUser(input: AdminCreateUserInput): Promise<{ success: boolean; user: PublicUser }> {
   const response = await fetch(`${API_BASE}/admin/users`, {
     method: 'POST',
     headers: authHeaders({ 'Content-Type': 'application/json' }),
@@ -148,7 +162,7 @@ export async function createAdminUser(input: { username: string; password: strin
   return parseJsonResponse<{ success: boolean; user: PublicUser }>(response, '创建用户失败')
 }
 
-export async function updateAdminUser(id: string, input: { password?: string; role?: 'admin' | 'user'; enabled?: boolean }): Promise<{ success: boolean; user: PublicUser }> {
+export async function updateAdminUser(id: string, input: AdminUpdateUserInput): Promise<{ success: boolean; user: PublicUser }> {
   const response = await fetch(`${API_BASE}/admin/users/${id}`, {
     method: 'PATCH',
     headers: authHeaders({ 'Content-Type': 'application/json' }),
