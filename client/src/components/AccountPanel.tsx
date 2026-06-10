@@ -1,4 +1,13 @@
 import { useState, useCallback } from 'react'
+import {
+  ChevronDown,
+  KeyRound,
+  LockKeyhole,
+  LogOut,
+  Save,
+  UserRound,
+  WalletCards,
+} from 'lucide-react'
 import type { AppSettings, BalanceResponse, PublicUser } from '../types/image'
 
 interface AccountPanelProps {
@@ -89,19 +98,25 @@ export default function AccountPanel({
     : '未配置'
 
   return (
-    <section className="surface-panel p-4">
-      <div className="mb-3 flex items-start justify-between gap-3">
-        <div>
-          <h2 className="section-label">账户</h2>
-          <p className="mt-1 text-xs text-ink-500">{user.username} · {user.role === 'admin' ? '管理员' : '用户'}</p>
+    <section className="surface-panel account-panel">
+      <div className="account-header">
+        <div className="account-title">
+          <span className="panel-icon" aria-hidden="true"><UserRound size={18} /></span>
+          <div className="min-w-0">
+            <h2 className="section-label">账户</h2>
+            <p className="truncate text-xs text-ink-500">{user.username} · {user.role === 'admin' ? '管理员' : '用户'}</p>
+          </div>
         </div>
-        <button type="button" onClick={onLogout} className="btn-secondary">退出</button>
+        <button type="button" onClick={onLogout} className="btn-secondary btn-icon-label">
+          <LogOut size={16} />
+          退出
+        </button>
       </div>
 
-      <div className="grid grid-cols-2 gap-2 text-xs">
+      <div className="account-status-grid">
         <div className="metric-box">
           <span>{keySource}</span>
-          <small>当前密钥来源</small>
+          <small>当前 Key</small>
         </div>
         <div className="metric-box">
           <span>{user.hasApiKey ? '已填写' : '未填写'}</span>
@@ -109,40 +124,47 @@ export default function AccountPanel({
         </div>
       </div>
 
-      <div className="mt-4 space-y-3">
-        <div>
-          <label htmlFor="user-api-key" className="label-text">我的 API Key</label>
-          <input
-            id="user-api-key"
-            type="password"
-            value={apiKey}
-            onChange={(event) => setApiKey(event.target.value)}
-            placeholder={settings.userApiKeysEnabled ? 'sk-...' : '管理员已关闭用户 Key'}
-            className="input-field text-sm"
-            disabled={!settings.userApiKeysEnabled}
-            autoComplete="off"
-          />
+      {!settings.effectiveKeySource && (
+        <p className="account-note">当前账号需要个人 Key 或管理员授权。</p>
+      )}
+
+      <div className="account-section">
+        <div className="account-section-title">
+          <KeyRound size={16} />
+          <h3>我的 API Key</h3>
         </div>
-        <div className="flex gap-2">
+        <input
+          id="user-api-key"
+          type="password"
+          value={apiKey}
+          onChange={(event) => setApiKey(event.target.value)}
+          placeholder={settings.userApiKeysEnabled ? 'sk-...' : '管理员已关闭用户 Key'}
+          className="input-field text-sm"
+          disabled={!settings.userApiKeysEnabled}
+          autoComplete="off"
+        />
+        <div className="account-button-row">
           <button
             type="button"
             onClick={handleSave}
             disabled={saving || !settings.userApiKeysEnabled}
-            className="btn-secondary flex-1"
+            className="btn-secondary btn-icon-label"
           >
-            {saving ? '保存中...' : '保存个人 Key'}
+            <Save size={16} />
+            {saving ? '保存中...' : '保存 Key'}
           </button>
           <button
             type="button"
             onClick={handleBalance}
             disabled={checking}
-            className="btn-secondary flex-1"
+            className="btn-secondary btn-icon-label"
           >
+            <WalletCards size={16} />
             {checking ? '查询中...' : '查询余额'}
           </button>
         </div>
         {balance && (
-          <div className="rounded-lg border border-ink-200 bg-white/60 px-3 py-2 text-xs text-ink-700">
+          <div className="account-balance">
             <p>来源：{KEY_SOURCE_LABELS[balance.source]}</p>
             <p>
               {balance.balance.unlimited_quota
@@ -152,55 +174,59 @@ export default function AccountPanel({
           </div>
         )}
         {message && <p className="text-xs text-ink-500">{message}</p>}
+      </div>
 
-        <div className="rounded-lg border border-ink-200 bg-white/45">
-          <button
-            type="button"
-            onClick={() => setPasswordOpen(value => !value)}
-            className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left"
-          >
-            <span className="text-xs font-bold text-ink-800">修改密码</span>
-            <span className="text-button">{passwordOpen ? '收起' : '展开'}</span>
-          </button>
+      <div className="account-section">
+        <button
+          type="button"
+          onClick={() => setPasswordOpen(value => !value)}
+          className="account-collapse-button"
+        >
+          <span className="account-section-title">
+            <LockKeyhole size={16} />
+            <span>修改密码</span>
+          </span>
+          <ChevronDown size={16} className={passwordOpen ? 'rotate-180' : ''} />
+        </button>
 
-          {passwordOpen && (
-            <div className="space-y-2 border-t border-ink-200 px-3 py-3">
-              <input
-                type="password"
-                value={currentPassword}
-                onChange={(event) => setCurrentPassword(event.target.value)}
-                placeholder="当前密码"
-                className="input-field text-sm"
-                autoComplete="current-password"
-              />
-              <input
-                type="password"
-                value={newPassword}
-                onChange={(event) => setNewPassword(event.target.value)}
-                placeholder="新密码"
-                className="input-field text-sm"
-                autoComplete="new-password"
-              />
-              <input
-                type="password"
-                value={confirmPassword}
-                onChange={(event) => setConfirmPassword(event.target.value)}
-                placeholder="确认新密码"
-                className="input-field text-sm"
-                autoComplete="new-password"
-              />
-              <button
-                type="button"
-                onClick={handleUpdatePassword}
-                disabled={savingPassword || !currentPassword || !newPassword || !confirmPassword}
-                className="btn-secondary w-full"
-              >
-                {savingPassword ? '更新中...' : '更新密码'}
-              </button>
-              {passwordMessage && <p className="text-xs text-ink-500">{passwordMessage}</p>}
-            </div>
-          )}
-        </div>
+        {passwordOpen && (
+          <div className="account-password-form">
+            <input
+              type="password"
+              value={currentPassword}
+              onChange={(event) => setCurrentPassword(event.target.value)}
+              placeholder="当前密码"
+              className="input-field text-sm"
+              autoComplete="current-password"
+            />
+            <input
+              type="password"
+              value={newPassword}
+              onChange={(event) => setNewPassword(event.target.value)}
+              placeholder="新密码"
+              className="input-field text-sm"
+              autoComplete="new-password"
+            />
+            <input
+              type="password"
+              value={confirmPassword}
+              onChange={(event) => setConfirmPassword(event.target.value)}
+              placeholder="确认新密码"
+              className="input-field text-sm"
+              autoComplete="new-password"
+            />
+            <button
+              type="button"
+              onClick={handleUpdatePassword}
+              disabled={savingPassword || !currentPassword || !newPassword || !confirmPassword}
+              className="btn-secondary btn-icon-label w-full"
+            >
+              <Save size={16} />
+              {savingPassword ? '更新中...' : '更新密码'}
+            </button>
+            {passwordMessage && <p className="text-xs text-ink-500">{passwordMessage}</p>}
+          </div>
+        )}
       </div>
     </section>
   )

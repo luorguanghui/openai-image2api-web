@@ -3,7 +3,13 @@ import { authenticate } from "../middlewares/auth.js";
 import type { AuthenticatedRequest } from "../types/auth.js";
 import { createSession, deleteSession } from "../services/sessionService.js";
 import { getSettings } from "../services/settingsService.js";
-import { loginUser, toPublicUser } from "../services/userService.js";
+import {
+  buildSelfRegistrationInput,
+  createUser,
+  findUserByUsername,
+  loginUser,
+  toPublicUser,
+} from "../services/userService.js";
 
 const router = Router();
 
@@ -22,6 +28,39 @@ router.post(
       const settings = await getSettings(user);
 
       res.status(200).json({
+        success: true,
+        token: session.token,
+        expiresAt: session.expiresAt,
+        user: toPublicUser(user),
+        settings,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.post(
+  "/register",
+  async (
+    req: Request<object, object, { username?: string; password?: string }>,
+    res: Response,
+    next: NextFunction
+  ) => {
+    try {
+      await createUser(buildSelfRegistrationInput(
+        req.body.username || "",
+        req.body.password || ""
+      ));
+      const user = await findUserByUsername(req.body.username || "");
+      if (!user) {
+        throw new Error("用户注册失败。");
+      }
+
+      const session = await createSession(user.id);
+      const settings = await getSettings(user);
+
+      res.status(201).json({
         success: true,
         token: session.token,
         expiresAt: session.expiresAt,

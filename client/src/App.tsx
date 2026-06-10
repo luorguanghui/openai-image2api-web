@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useMemo } from 'react'
+import { LayoutDashboard, ShieldCheck } from 'lucide-react'
 import AdminPanel from './components/AdminPanel'
 import AccountPanel from './components/AccountPanel'
 import ConversationThread from './components/ConversationThread'
@@ -17,6 +18,7 @@ import {
   generateImage,
   login,
   logout,
+  register,
   setAuthToken,
   updateAdminSettings,
   updateAdminUser,
@@ -28,6 +30,7 @@ import type {
   AdminCreateUserInput,
   AdminUpdateUserInput,
   AppSettings,
+  AuthResponse,
   BalanceResponse,
   ConversationTurn,
   GenerateImageParams,
@@ -91,6 +94,7 @@ export default function App() {
   const [images, setImages] = useState<GeneratedImage[]>([])
   const [history, setHistory] = useState<HistoryEntry[]>([])
   const [historyScope, setHistoryScope] = useState<'own' | 'all'>('own')
+  const [activeView, setActiveView] = useState<'workspace' | 'admin'>('workspace')
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [conversationTurns, setConversationTurns] = useState<ConversationTurn[]>([])
   const [pendingTurn, setPendingTurn] = useState<{
@@ -176,6 +180,19 @@ export default function App() {
     ])
   }, [loadHistory, loadModels])
 
+  const enterAuthenticatedWorkspace = useCallback(async (res: AuthResponse) => {
+    localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, res.token)
+    setAuthToken(res.token)
+    setUser(res.user)
+    setSettings(res.settings)
+    setHistoryScope('own')
+    setActiveView('workspace')
+    await initializeWorkspace('own')
+    if (res.user.role === 'admin') {
+      await loadAdminUsers()
+    }
+  }, [initializeWorkspace, loadAdminUsers])
+
   useEffect(() => {
     const token = localStorage.getItem(AUTH_TOKEN_STORAGE_KEY) || ''
     if (!token) {
@@ -207,21 +224,26 @@ export default function App() {
     setLoginError(null)
     try {
       const res = await login(username, password)
-      localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, res.token)
-      setAuthToken(res.token)
-      setUser(res.user)
-      setSettings(res.settings)
-      setHistoryScope('own')
-      await initializeWorkspace('own')
-      if (res.user.role === 'admin') {
-        await loadAdminUsers()
-      }
+      await enterAuthenticatedWorkspace(res)
     } catch (err) {
       setLoginError(err instanceof Error ? err.message : '登录失败。')
     } finally {
       setLoginLoading(false)
     }
-  }, [initializeWorkspace, loadAdminUsers])
+  }, [enterAuthenticatedWorkspace])
+
+  const handleRegister = useCallback(async (username: string, password: string) => {
+    setLoginLoading(true)
+    setLoginError(null)
+    try {
+      const res = await register(username, password)
+      await enterAuthenticatedWorkspace(res)
+    } catch (err) {
+      setLoginError(err instanceof Error ? err.message : '注册失败。')
+    } finally {
+      setLoginLoading(false)
+    }
+  }, [enterAuthenticatedWorkspace])
 
   const handleLogout = useCallback(async () => {
     try {
@@ -233,12 +255,18 @@ export default function App() {
     setAuthToken('')
     setUser(null)
     setSettings(DEFAULT_SETTINGS)
+    setActiveView('workspace')
     setImages([])
     setHistory([])
     setConversationId(null)
     setConversationTurns([])
     setError(null)
   }, [])
+
+  const handleOpenAdmin = useCallback(async () => {
+    setActiveView('admin')
+    await loadAdminUsers()
+  }, [loadAdminUsers])
 
   const handleSaveMyApiKey = useCallback(async (apiKey: string) => {
     const res = await updateMyApiKey(apiKey)
@@ -453,13 +481,23 @@ export default function App() {
   }
 
   if (!user) {
-    return <LoginView loading={loginLoading} error={loginError} onLogin={handleLogin} />
+    return (
+      <LoginView
+        loading={loginLoading}
+        error={loginError}
+        onLogin={handleLogin}
+        onRegister={handleRegister}
+        onClearError={() => setLoginError(null)}
+      />
+    )
   }
+
+  const isAdminView = user.role === 'admin' && activeView === 'admin'
 
   return (
     <div className="min-h-screen app-shell text-ink-900">
       <header className="border-b border-ink-200/80 bg-paper/95 backdrop-blur sticky top-0 z-30">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
+        <div className="workbench-header-inner">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <span className="brand-mark" aria-hidden="true" />
@@ -469,13 +507,13 @@ export default function App() {
           </div>
           <div className="hidden items-center gap-2 sm:flex">
             <span className="status-pill">{settings.effectiveKeySource ? 'Key 已就绪' : 'Key 未配置'}</span>
-            <span className="status-pill">{historyScope === 'all' ? '管理员视图' : '个人视图'}</span>
+            <span className="status-pill">{isAdminView ? '管理中心' : historyScope === 'all' ? '管理员视图' : '个人视图'}</span>
           </div>
         </div>
       </header>
 
-      <main className="mx-auto grid max-w-7xl grid-cols-1 gap-5 px-4 py-5 sm:px-6 lg:grid-cols-[430px_minmax(0,1fr)]">
-        <aside className="min-w-0 space-y-4 lg:sticky lg:top-24 lg:max-h-[calc(100vh-7rem)] lg:self-start lg:overflow-y-auto lg:pr-1">
+      <main className={isAdminView ? 'workspace-main is-admin-view' : 'workspace-main'}>
+        <aside className="workspace-sidebar min-w-0 space-y-4 lg:sticky lg:top-24 lg:max-h-[calc(100vh-7rem)] lg:self-start lg:overflow-y-auto lg:pr-1">
           <AccountPanel
             user={user}
             settings={settings}
@@ -485,58 +523,85 @@ export default function App() {
             onLogout={handleLogout}
           />
           {user.role === 'admin' && (
-            <AdminPanel
-              settings={settings}
-              users={adminUsers}
-              loading={adminUsersLoading}
-              onSaveSettings={handleSaveAdminSettings}
-              onCreateUser={handleCreateAdminUser}
-              onUpdateUser={handleUpdateAdminUser}
-              onRefreshUsers={loadAdminUsers}
-            />
-          )}
-          <ImageForm
-            params={params}
-            models={models}
-            modelsLoading={modelsLoading}
-            modelsSource={modelsSource}
-            onlineModelCount={onlineModelCount}
-            onParamsChange={handleParamsChange}
-            onUploadReferenceImages={handleUploadReferenceImages}
-            onSubmit={handleGenerate}
-            loading={loading}
-          />
-          {user.role === 'admin' && (
-            <section className="surface-panel p-4">
-              <h2 className="section-label">历史范围</h2>
+            <section className="surface-panel p-3">
+              <h2 className="section-label">视图切换</h2>
               <div className="mt-3 grid grid-cols-2 gap-2">
                 <button
                   type="button"
-                  onClick={() => handleHistoryScopeChange('own')}
-                  className={historyScope === 'own' ? 'btn-primary compact' : 'btn-secondary'}
+                  onClick={() => setActiveView('workspace')}
+                  className={activeView === 'workspace' ? 'btn-primary compact btn-icon-label' : 'btn-secondary btn-icon-label'}
                 >
-                  我的
+                  <LayoutDashboard size={16} />
+                  工作台
                 </button>
                 <button
                   type="button"
-                  onClick={() => handleHistoryScopeChange('all')}
-                  className={historyScope === 'all' ? 'btn-primary compact' : 'btn-secondary'}
+                  onClick={handleOpenAdmin}
+                  className={activeView === 'admin' ? 'btn-primary compact btn-icon-label' : 'btn-secondary btn-icon-label'}
                 >
-                  全部
+                  <ShieldCheck size={16} />
+                  管理
                 </button>
               </div>
             </section>
           )}
-          <HistoryPanel
-            history={activeHistory}
-            loading={historyLoading}
-            onRefresh={() => loadHistory(historyScope, conversationId)}
-            onClearAll={handleClearHistory}
-            onRestore={handleRestore}
-          />
+          {!isAdminView && (
+            <>
+              <ImageForm
+                params={params}
+                models={models}
+                modelsLoading={modelsLoading}
+                modelsSource={modelsSource}
+                onlineModelCount={onlineModelCount}
+                onParamsChange={handleParamsChange}
+                onUploadReferenceImages={handleUploadReferenceImages}
+                onSubmit={handleGenerate}
+                loading={loading}
+              />
+              {user.role === 'admin' && (
+                <section className="surface-panel p-4">
+                  <h2 className="section-label">历史范围</h2>
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleHistoryScopeChange('own')}
+                      className={historyScope === 'own' ? 'btn-primary compact' : 'btn-secondary'}
+                    >
+                      我的
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleHistoryScopeChange('all')}
+                      className={historyScope === 'all' ? 'btn-primary compact' : 'btn-secondary'}
+                    >
+                      全部
+                    </button>
+                  </div>
+                </section>
+              )}
+              <HistoryPanel
+                history={activeHistory}
+                loading={historyLoading}
+                onRefresh={() => loadHistory(historyScope, conversationId)}
+                onClearAll={handleClearHistory}
+                onRestore={handleRestore}
+              />
+            </>
+          )}
         </aside>
 
-        <section className="min-w-0 space-y-4 lg:sticky lg:top-24 lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto">
+        {isAdminView ? (
+          <AdminPanel
+            settings={settings}
+            users={adminUsers}
+            loading={adminUsersLoading}
+            onSaveSettings={handleSaveAdminSettings}
+            onCreateUser={handleCreateAdminUser}
+            onUpdateUser={handleUpdateAdminUser}
+            onRefreshUsers={loadAdminUsers}
+          />
+        ) : (
+        <section className="conversation-column min-w-0 space-y-4 lg:sticky lg:top-24 lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto">
           <div className="surface-panel p-4 sm:p-5">
             <div className="flex flex-col gap-3 border-b border-ink-200 pb-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
@@ -578,6 +643,7 @@ export default function App() {
             <ConversationThread turns={conversationTurns} pendingTurn={pendingTurn} />
           </div>
         </section>
+        )}
       </main>
     </div>
   )

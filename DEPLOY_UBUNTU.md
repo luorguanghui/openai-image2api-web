@@ -5,8 +5,9 @@ the built frontend from one Node.js service.
 
 The deployment script installs system packages, installs Node.js 20 when needed,
 creates a non-root service user, clones or updates the repository, installs npm
-dependencies, builds the app, writes a systemd unit, optionally configures
-nginx, restarts the service, and checks `/api/health`.
+dependencies, builds the app, writes a systemd unit, optionally prepares local
+MySQL, optionally configures nginx, restarts the service, checks that the port
+is free, and checks `/api/health`.
 
 ## First Deployment
 
@@ -37,11 +38,33 @@ The app listens on port `3001` by default:
 http://YOUR_SERVER_IP:3001/
 ```
 
-## First Deployment With MySQL And Admin Values
+## First Deployment With Local MySQL
 
-The app uses MySQL. Provide your MySQL connection and first admin credentials on
-the first deploy, or edit `/opt/openai-image2api-web/.env` before starting
-traffic.
+The app uses MySQL. For a single-server Ubuntu deployment, let the script
+install MySQL, create the database, create an app-specific MySQL user, generate
+a MySQL password if you do not provide one, and write the resulting values to
+`/opt/openai-image2api-web/.env`:
+
+```bash
+sudo bash scripts/deploy-ubuntu.sh \
+  --install-mysql \
+  --admin-password 'change-this-admin-password'
+```
+
+If you want to choose the MySQL password yourself:
+
+```bash
+sudo bash scripts/deploy-ubuntu.sh \
+  --install-mysql \
+  --mysql-password 'change-this-mysql-password' \
+  --admin-password 'change-this-admin-password'
+```
+
+## First Deployment With An Existing MySQL Server
+
+If you already have MySQL, provide your MySQL connection and first admin
+credentials on the first deploy, or edit `/opt/openai-image2api-web/.env`
+before starting traffic.
 
 ```bash
 sudo bash scripts/deploy-ubuntu.sh \
@@ -93,8 +116,10 @@ For an existing checkout, the script performs this update flow:
 3. `git reset --hard origin/<branch>`
 4. install dependencies
 5. build the frontend and backend
-6. restart systemd
-7. run the local health check
+6. stop the existing systemd service
+7. check that the configured port is not occupied by another process
+8. restart systemd
+9. run the local health check
 
 Redeploy the default branch:
 
@@ -154,6 +179,7 @@ Common options:
 
 ```bash
 sudo bash scripts/deploy-ubuntu.sh \
+  --install-mysql \
   --port 3001 \
   --api-base-url https://api.apimart.ai \
   --cors-origin https://img.example.com \
@@ -229,6 +255,14 @@ MYSQL_PORT
 MYSQL_USER
 MYSQL_PASSWORD
 MYSQL_DATABASE
+```
+
+If deploy fails with a port-in-use message, either stop the process occupying
+the configured port or deploy on another port:
+
+```bash
+sudo ss -ltnp 'sport = :3001'
+sudo bash /opt/openai-image2api-web/scripts/deploy-ubuntu.sh --port 3002
 ```
 
 If the health check fails after a deploy, inspect the service and logs:

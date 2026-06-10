@@ -47,6 +47,15 @@ export async function login(username: string, password: string): Promise<AuthRes
   return parseJsonResponse<AuthResponse>(response, '登录失败')
 }
 
+export async function register(username: string, password: string): Promise<AuthResponse> {
+  const response = await fetch(`${API_BASE}/auth/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+  })
+  return parseJsonResponse<AuthResponse>(response, '注册失败')
+}
+
 export async function fetchMe(): Promise<MeResponse> {
   const response = await fetch(`${API_BASE}/auth/me`, { headers: authHeaders() })
   return parseJsonResponse<MeResponse>(response, '获取当前用户失败')

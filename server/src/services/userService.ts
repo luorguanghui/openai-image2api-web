@@ -149,6 +149,22 @@ export async function loginUser(username: string, password: string): Promise<Aut
   return user;
 }
 
+export function buildSelfRegistrationInput(username: string, password: string): {
+  username: string;
+  password: string;
+  role: UserRole;
+  enabled: boolean;
+  canUseAdminApiKey: boolean;
+} {
+  return {
+    username,
+    password,
+    role: "user",
+    enabled: true,
+    canUseAdminApiKey: false,
+  };
+}
+
 export async function createUser(input: {
   username: string;
   password: string;

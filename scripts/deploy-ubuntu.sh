@@ -31,6 +31,7 @@ MYSQL_PASSWORD=""
 MYSQL_PASSWORD_SET="false"
 MYSQL_DATABASE="openai_image2api"
 MYSQL_DATABASE_SET="false"
+INSTALL_MYSQL="false"
 ADMIN_USERNAME="admin"
 ADMIN_USERNAME_SET="false"
 ADMIN_PASSWORD="admin123"
@@ -56,6 +57,9 @@ Options:
   --mysql-user USER       MySQL user. Default: preserves .env, or root.
   --mysql-password PASS   MySQL password. Preserved unless explicitly supplied.
   --mysql-database NAME   MySQL database. Default: preserves .env, or openai_image2api.
+  --install-mysql         Install local MySQL server and create database/user.
+                          If --mysql-user/--mysql-password are omitted, the
+                          script uses the service user and generates a password.
   --admin-username USER   Initial admin username. Default: preserves .env, or admin.
   --admin-password PASS   Initial admin password. Preserved unless explicitly supplied.
   --domain DOMAIN         Domain used for nginx server_name.
@@ -67,6 +71,7 @@ Examples:
   sudo bash scripts/deploy-ubuntu.sh
   sudo bash scripts/deploy-ubuntu.sh --repo https://github.com/luorguanghui/openai-image2api-web.git
   sudo bash scripts/deploy-ubuntu.sh --domain img.example.com --install-nginx
+  sudo bash scripts/deploy-ubuntu.sh --install-mysql --admin-password 'change-me'
   sudo bash scripts/deploy-ubuntu.sh --mysql-password 'change-me' --admin-password 'change-me-too'
   sudo bash scripts/deploy-ubuntu.sh --https-proxy http://127.0.0.1:7890
 USAGE
@@ -163,6 +168,10 @@ while [[ $# -gt 0 ]]; do
       MYSQL_DATABASE_SET="true"
       shift 2
       ;;
+    --install-mysql)
+      INSTALL_MYSQL="true"
+      shift
+      ;;
     --admin-username)
       need_arg "$1" "${2:-}"
       ADMIN_USERNAME="$2"
@@ -256,7 +265,7 @@ install_node_if_needed() {
 ensure_system_packages() {
   log "Installing system packages."
   apt-get update
-  apt-get install -y git curl build-essential sudo
+  apt-get install -y git curl build-essential sudo iproute2
 }
 
 ensure_app_user() {
@@ -272,6 +281,85 @@ ensure_app_user() {
 
   log "Creating service user ${APP_USER}."
   useradd --system --gid "$APP_USER" --home-dir "$APP_DIR" --shell /usr/sbin/nologin "$APP_USER"
+}
+
+generate_password() {
+  if command -v openssl >/dev/null 2>&1; then
+    openssl rand -base64 30 | tr -d '\r\n' | tr '/+' '_-'
+    return
+  fi
+
+  local generated
+  set +o pipefail
+  generated="$(tr -dc 'A-Za-z0-9_-' < /dev/urandom | head -c 40)"
+  set -o pipefail
+  printf '%s' "$generated"
+}
+
+assert_safe_mysql_database() {
+  [[ "$MYSQL_DATABASE" =~ ^[A-Za-z0-9_]+$ ]] || fail "MYSQL database name can only contain letters, numbers, and underscores."
+}
+
+assert_safe_mysql_account() {
+  [[ "$MYSQL_USER" =~ ^[A-Za-z0-9_.-]+$ ]] || fail "MYSQL user can only contain letters, numbers, underscores, dots, and hyphens."
+}
+
+sql_string() {
+  local value="$1"
+  value="${value//\'/\'\'}"
+  printf "'%s'" "$value"
+}
+
+ensure_local_mysql() {
+  [[ "$INSTALL_MYSQL" == "true" ]] || return 0
+
+  if [[ "$MYSQL_HOST" != "127.0.0.1" && "$MYSQL_HOST" != "localhost" ]]; then
+    fail "--install-mysql can only manage a local MySQL host. Use --mysql-host 127.0.0.1 or configure the remote database yourself."
+  fi
+
+  if [[ "$MYSQL_USER_SET" == "false" ]]; then
+    MYSQL_USER="$APP_USER"
+    MYSQL_USER_SET="true"
+  fi
+  if [[ "$MYSQL_PASSWORD_SET" == "false" ]]; then
+    MYSQL_PASSWORD="$(generate_password)"
+    MYSQL_PASSWORD_SET="true"
+  fi
+
+  assert_safe_mysql_database
+  assert_safe_mysql_account
+
+  log "Installing and preparing local MySQL."
+  apt-get update
+  DEBIAN_FRONTEND=noninteractive apt-get install -y mysql-server
+  systemctl enable --now mysql
+
+  if ! command -v mysql >/dev/null 2>&1; then
+    fail "mysql client was not installed successfully."
+  fi
+
+  local user_sql
+  local password_sql
+  local localhost_sql
+  local loopback_sql
+  user_sql="$(sql_string "$MYSQL_USER")"
+  password_sql="$(sql_string "$MYSQL_PASSWORD")"
+  localhost_sql="$(sql_string "localhost")"
+  loopback_sql="$(sql_string "127.0.0.1")"
+
+  mysql --protocol=socket -uroot <<SQL
+CREATE DATABASE IF NOT EXISTS \`${MYSQL_DATABASE}\`
+  CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER IF NOT EXISTS ${user_sql}@${localhost_sql} IDENTIFIED BY ${password_sql};
+ALTER USER ${user_sql}@${localhost_sql} IDENTIFIED BY ${password_sql};
+GRANT ALL PRIVILEGES ON \`${MYSQL_DATABASE}\`.* TO ${user_sql}@${localhost_sql};
+CREATE USER IF NOT EXISTS ${user_sql}@${loopback_sql} IDENTIFIED BY ${password_sql};
+ALTER USER ${user_sql}@${loopback_sql} IDENTIFIED BY ${password_sql};
+GRANT ALL PRIVILEGES ON \`${MYSQL_DATABASE}\`.* TO ${user_sql}@${loopback_sql};
+FLUSH PRIVILEGES;
+SQL
+
+  log "Local MySQL is ready for user ${MYSQL_USER} and database ${MYSQL_DATABASE}."
 }
 
 git_as_app_user() {
@@ -310,10 +398,10 @@ update_existing_checkout() {
 
 select_checkout_source() {
   if [[ "$REPO_URL_SET" == "false" ]]; then
-    if [[ "$APP_DIR_SET" == "false" && is_project_checkout "$LOCAL_REPO_DIR" ]]; then
+    if [[ "$APP_DIR_SET" == "false" ]] && is_project_checkout "$LOCAL_REPO_DIR"; then
       APP_DIR="$LOCAL_REPO_DIR"
       log "No --repo supplied; deploying current checkout at ${APP_DIR}."
-    elif [[ "$APP_DIR_SET" == "false" && is_project_checkout "$INVOCATION_DIR" ]]; then
+    elif [[ "$APP_DIR_SET" == "false" ]] && is_project_checkout "$INVOCATION_DIR"; then
       APP_DIR="$INVOCATION_DIR"
       log "No --repo supplied; deploying current checkout at ${APP_DIR}."
     else
@@ -513,7 +601,23 @@ SERVICE
 
   systemctl daemon-reload
   systemctl enable "${APP_NAME}.service"
+  systemctl stop "${APP_NAME}.service" >/dev/null 2>&1 || true
+  ensure_port_available
   systemctl restart "${APP_NAME}.service"
+}
+
+ensure_port_available() {
+  if ! command -v ss >/dev/null 2>&1; then
+    log "Warning: ss command not found; skipping port ${PORT} preflight."
+    return
+  fi
+
+  local listeners
+  listeners="$(ss -H -ltnp "sport = :${PORT}" 2>/dev/null || true)"
+  if [[ -n "$listeners" ]]; then
+    printf '%s\n' "$listeners" >&2
+    fail "Port ${PORT} is already in use by another process. Stop it or deploy with --port <free-port>."
+  fi
 }
 
 install_nginx_config() {
@@ -591,6 +695,7 @@ ensure_system_packages
 install_node_if_needed
 select_checkout_source
 ensure_app_user
+ensure_local_mysql
 checkout_code
 write_env_file
 install_and_build

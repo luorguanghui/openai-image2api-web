@@ -132,6 +132,7 @@ docker-compose logs -f
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | POST | `/api/auth/login` | 用户登录 |
+| POST | `/api/auth/register` | 用户自助注册 |
 | GET | `/api/auth/me` | 获取当前用户 |
 | PUT | `/api/account/api-key` | 保存个人 API Key |
 | GET | `/api/account/balance` | 查询当前有效 Key 余额 |
