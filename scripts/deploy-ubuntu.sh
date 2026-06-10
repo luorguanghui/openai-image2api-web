@@ -36,6 +36,8 @@ ADMIN_USERNAME="admin"
 ADMIN_USERNAME_SET="false"
 ADMIN_PASSWORD="admin123"
 ADMIN_PASSWORD_SET="false"
+BACKUP_EXISTING="false"
+EXISTING_APP_BACKUP_DIR=""
 
 usage() {
   cat <<'USAGE'
@@ -65,6 +67,8 @@ Options:
   --domain DOMAIN         Domain used for nginx server_name.
   --install-nginx         Install and configure nginx reverse proxy.
   --https-proxy URL       Set HTTPS proxy for API requests (e.g. http://127.0.0.1:7890).
+  --backup-existing       If --dir exists but is not a git checkout, move it to
+                          a timestamped backup before cloning.
   -h, --help              Show this help.
 
 Examples:
@@ -74,6 +78,7 @@ Examples:
   sudo bash scripts/deploy-ubuntu.sh --install-mysql --admin-password 'change-me'
   sudo bash scripts/deploy-ubuntu.sh --mysql-password 'change-me' --admin-password 'change-me-too'
   sudo bash scripts/deploy-ubuntu.sh --https-proxy http://127.0.0.1:7890
+  sudo bash scripts/deploy-ubuntu.sh --backup-existing
 USAGE
 }
 
@@ -197,6 +202,10 @@ while [[ $# -gt 0 ]]; do
       HTTPS_PROXY_URL="$2"
       HTTPS_PROXY_URL_SET="true"
       shift 2
+      ;;
+    --backup-existing)
+      BACKUP_EXISTING="true"
+      shift
       ;;
     -h|--help)
       usage
@@ -420,6 +429,44 @@ select_checkout_source() {
   fi
 }
 
+backup_existing_app_dir() {
+  if [[ "$BACKUP_EXISTING" != "true" ]]; then
+    fail "${APP_DIR} exists but is not a git checkout. Re-run with --backup-existing to move it aside automatically, or choose --dir."
+  fi
+
+  local stamp
+  local backup_dir
+
+  stamp="$(date +'%Y%m%d%H%M%S')"
+  backup_dir="${APP_DIR}.backup.${stamp}"
+  while [[ -e "$backup_dir" ]]; do
+    sleep 1
+    stamp="$(date +'%Y%m%d%H%M%S')"
+    backup_dir="${APP_DIR}.backup.${stamp}"
+  done
+
+  log "Backing up existing ${APP_DIR} to ${backup_dir}."
+  mv "$APP_DIR" "$backup_dir"
+  EXISTING_APP_BACKUP_DIR="$backup_dir"
+}
+
+restore_backup_artifacts() {
+  [[ -n "$EXISTING_APP_BACKUP_DIR" ]] || return 0
+
+  log "Restoring preserved runtime files from ${EXISTING_APP_BACKUP_DIR}."
+  if [[ -f "${EXISTING_APP_BACKUP_DIR}/.env" && ! -f "${APP_DIR}/.env" ]]; then
+    cp -a "${EXISTING_APP_BACKUP_DIR}/.env" "${APP_DIR}/.env"
+  fi
+
+  local path
+  for path in "server/data" "server/public/generated"; do
+    if [[ -e "${EXISTING_APP_BACKUP_DIR}/${path}" && ! -e "${APP_DIR}/${path}" ]]; then
+      mkdir -p "$(dirname -- "${APP_DIR}/${path}")"
+      cp -a "${EXISTING_APP_BACKUP_DIR}/${path}" "${APP_DIR}/${path}"
+    fi
+  done
+}
+
 checkout_code() {
   if [[ -d "${APP_DIR}/.git" ]]; then
     chown -R "${APP_USER}:${APP_USER}" "$APP_DIR"
@@ -427,10 +474,13 @@ checkout_code() {
   elif [[ -n "$REPO_URL" ]]; then
     log "Cloning ${REPO_URL} (${BRANCH}) to ${APP_DIR}."
     mkdir -p "$(dirname "$APP_DIR")"
-    if [[ -e "$APP_DIR" && -n "$(find "$APP_DIR" -mindepth 1 -maxdepth 1 2>/dev/null)" ]]; then
-      fail "${APP_DIR} exists but is not a git checkout. Move it aside or choose --dir."
+    if [[ -e "$APP_DIR" ]]; then
+      if [[ ! -d "$APP_DIR" || -n "$(find "$APP_DIR" -mindepth 1 -maxdepth 1 2>/dev/null)" ]]; then
+        backup_existing_app_dir
+      fi
     fi
     git clone --branch "$BRANCH" "$REPO_URL" "$APP_DIR"
+    restore_backup_artifacts
   else
     fail "No repository URL or usable git checkout found."
   fi
